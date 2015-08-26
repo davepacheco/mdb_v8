@@ -92,11 +92,6 @@ typedef enum {
  * For more on Context internals, see src/context.h in the V8 source.  For more
  * information on ScopeInfo internals, see the declaration of the ScopeInfo
  * class in src/objects.h in the V8 source.
- *
- * TODO in the future, we will likely want to provide free() functions for
- * v8context and v8scopeinfo, and those are going to need to know whether UM_GC
- * was passed at load-time.  Today, we assume callers passed UM_GC, and we don't
- * have a way to free these.
  */
 
 
@@ -105,6 +100,7 @@ typedef enum {
  */
 
 v8context_t *v8context_load(uintptr_t, int);
+void v8context_free(v8context_t *);
 uintptr_t v8context_closure(v8context_t *);
 uintptr_t v8context_prev_context(v8context_t *);
 int v8context_var_value(v8context_t *, unsigned int, uintptr_t *);
@@ -118,6 +114,7 @@ int v8context_iter_dynamic_slots(v8context_t *,
  * Working with ScopeInfo objects
  */
 v8scopeinfo_t *v8scopeinfo_load(uintptr_t, int);
+void v8scopeinfo_free(v8scopeinfo_t *);
 v8scopeinfo_t *v8context_scopeinfo(v8context_t *, int);
 
 int v8scopeinfo_iter_vartypes(v8scopeinfo_t *,
