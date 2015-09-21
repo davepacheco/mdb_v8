@@ -38,9 +38,20 @@
 #ifndef	_MDBV8DBG_H
 #define	_MDBV8DBG_H
 
+#include <stdarg.h>
+
 /*
  * Basic types
  */
+
+typedef struct {
+	char	*ms_buf;	/* full buffer */
+	size_t	ms_bufsz;	/* full buffer size */
+	char	*ms_curbuf;	/* current position in buffer */
+	size_t	ms_curbufsz;	/* current buffer size left */
+	int	ms_flags;	/* buffer flags */
+	int	ms_memflags;	/* memory allocation flags */
+} mdbv8_strbuf_t;
 
 typedef struct v8function v8function_t;
 
@@ -53,6 +64,42 @@ typedef enum {
 	V8SV_STACKLOCALS,
 	V8SV_CONTEXTLOCALS
 } v8scopeinfo_vartype_t;
+
+
+/*
+ * Working with ASCII strings.
+ */
+
+typedef enum {
+	MSF_ASCIIONLY	= 0x1,			/* replace non-ASCII */
+	MSF_JSON	= MSF_ASCIIONLY | 0x2,	/* partial JSON string */
+} mdbv8_strappend_flags_t;
+
+mdbv8_strbuf_t *mdbv8_strbuf_alloc(size_t, int);
+void mdbv8_strbuf_free(mdbv8_strbuf_t *);
+void mdbv8_strbuf_init(mdbv8_strbuf_t *, char *, size_t);
+
+size_t mdbv8_strbuf_bufsz(mdbv8_strbuf_t *);
+
+void mdbv8_strbuf_rewind(mdbv8_strbuf_t *);
+void mdbv8_strbuf_appendc(mdbv8_strbuf_t *, char, mdbv8_strappend_flags_t);
+void mdbv8_strbuf_appends(mdbv8_strbuf_t *, const char *,
+    mdbv8_strappend_flags_t);
+void mdbv8_strbuf_sprintf(mdbv8_strbuf_t *, const char *, ...);
+void mdbv8_strbuf_vsprintf(mdbv8_strbuf_t *, const char *, va_list);
+const char *mdbv8_strbuf_tocstr(mdbv8_strbuf_t *);
+
+
+/*
+ * Working with JavaScript strings
+ */
+typedef struct v8_string v8_string_t;
+
+v8string_t * v8string_load(uintptr_t, int);
+void v8string_free(v8_string_t *);
+
+size_t v8string_length(v8string_t *);
+int v8string_write(mdbv8_strbuf_t *);
 
 
 /*
@@ -140,5 +187,9 @@ v8function_t *v8function_load(uintptr_t, int);
 void v8function_free(v8function_t *);
 v8context_t *v8function_context(v8function_t *, int);
 v8scopeinfo_t *v8function_scopeinfo(v8function_t *, int);
+
+typedef struct v8funcinfo v8funcinfo_t;
+v8funcinfo_t *v8function_funcinfo(v8function_t *, int);
+void v8funcinfo_free(v8funcinfo_t *);
 
 #endif	/* _MDBV8DBG_H */

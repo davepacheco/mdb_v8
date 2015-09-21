@@ -85,8 +85,17 @@ static size_t v8scopeinfo_nvartypes =
 
 
 struct v8function {
-	uintptr_t	v8func_addr;	/* JSFunction address in target proc */
+	uintptr_t	v8func_addr;		/* address in target proc */
 	int		v8func_memflags;	/* allocation flags */
+	uintptr_t	v8func_shared;		/* SharedFunctionInfo */
+};
+
+struct v8funcinfo {
+	uintptr_t	v8fi_script;		/* script object */
+	uintptr_t	v8fi_funcname;		/* function name (string) */
+	uintptr_t	v8fi_inferred_name;	/* inferred func name */
+	uintptr_t	v8fi_scriptpath;	/* script file name (string) */
+	uintptr_t	v8fi_tokenpos;		/* "function" token position */
 };
 
 /*
@@ -528,6 +537,7 @@ v8function_t *
 v8function_load(uintptr_t addr, int memflags)
 {
 	uint8_t type;
+	uintptr_t shared;
 	v8function_t *funcp;
 
 	if (!V8_IS_HEAPOBJECT(addr) || read_typebyte(&type, addr) != 0) {
@@ -540,12 +550,18 @@ v8function_load(uintptr_t addr, int memflags)
 		return (NULL);
 	}
 
+	if (read_heap_ptr(&shared, addr, V8_OFF_JSFUNCTION_SHARED) != 0) {
+		v8_warn("%p: no SharedFunctionInfo\n", addr);
+		return (NULL);
+	}
+
 	if ((funcp = mdb_zalloc(sizeof (*funcp), memflags)) == NULL) {
 		return (NULL);
 	}
 
 	funcp->v8func_addr = addr;
 	funcp->v8func_memflags = memflags;
+	funcp->v8func_shared = shared;
 	return (funcp);
 }
 
@@ -603,4 +619,66 @@ void
 v8function_free(v8function_t *funcp)
 {
 	maybefree(funcp, sizeof (*funcp), funcp->v8func_memflags);
+}
+
+
+v8funcinfo_t *
+v8function_funcinfo(v8function_t *funcp, int memflags)
+{
+	v8funcinfo_t *fip;
+	uintptr_t funcinfo, script, name, inferred_name;
+	uintptr_t scriptpath, lineends, tokenpos;
+
+	funcinfo = funcp->v8func_shared;
+	if (read_heap_maybesmi(&tokenpos, funcinfo,
+	    V8_OFF_SHAREDFUNCTIONINFO_FUNCTION_TOKEN_POSITION) != 0 ||
+	    read_heap_ptr(&name, funcinfo,
+	    V8_OFF_SHAREDFUNCTIONINFO_NAME) != 0 ||
+	    read_heap_ptr(&script, funcinfo,
+	    V8_OFF_SHAREDFUNCTIONINFO_SCRIPT) != 0 ||
+	    read_heap_ptr(&scriptpath, script, V8_OFF_SCRIPT_NAME) != 0 ||
+	    read_heap_ptr(&lineends, script, V8_OFF_SCRIPT_LINE_ENDS) != 0) {
+		return (NULL);
+	}
+
+	if (read_heap_ptr(&inferred_name, funcinfo,
+	    V8_OFF_SHAREDFUNCTIONINFO_INFERRED_NAME) != 0) {
+		inferred_name = 0;
+	}
+
+	/*
+	 * The token position is normally a SMI, so read_heap_maybesmi() will
+	 * interpret the value for us.  However, this code uses its SMI-encoded
+	 * value, so convert it back here.
+	 */
+	tokenpos = V8_VALUE_SMI(tokenpos);
+
+	fip = mdb_zalloc(sizeof (*fip), memflags);
+	if (fip == NULL) {
+		return (NULL);
+	}
+
+	fip->v8fi_script = script;
+	fip->v8fi_funcname = name;
+	fip->v8fi_inferred_name = inferred_name;
+	fip->v8fi_scriptpath = scriptpath;
+	fip->v8fi_tokenpos = tokenpos;
+
+	return (fip);
+}
+
+int
+v8funcinfo_funcname(v8funcinfo_t *fip, mdbv8_strbuf_t *strb,
+    mdbv8_strappend_flags_t flags)
+{
+	/* XXX want to use inferred name if this is empty */
+	/* XXX want v8string_load(), and what if that fails? */
+	return (v8string_print(fip->v8fi_funcname, strb, flags));
+}
+
+int
+v8funcinfo_scriptpath(v8funcinfo_t *fip, mdbv8_strbuf_t *strb,
+    mdbv8_strappend_flags_t flags)
+{
+	return (v8string_print(fip->v8fi_scriptpath, strb, flags));
 }

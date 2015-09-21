@@ -18,6 +18,8 @@
 #ifndef	_MDBV8IMPL_H
 #define	_MDBV8IMPL_H
 
+#include <stdarg.h>
+
 /*
  * We hard-code our MDB_API_VERSION to be 3 to allow this module to be
  * compiled on systems with higher version numbers, but still allow the
@@ -38,6 +40,7 @@
  */
 void maybefree(void *, size_t, int);
 int read_heap_array(uintptr_t, uintptr_t **, size_t *, int);
+int read_heap_maybesmi(uintptr_t *, uintptr_t, ssize_t);
 int read_heap_ptr(uintptr_t *, uintptr_t, ssize_t);
 int read_typebyte(uint8_t *, uintptr_t);
 void v8_warn(const char *, ...);
@@ -51,6 +54,12 @@ extern intptr_t V8_TYPE_JSFUNCTION;
 extern ssize_t V8_OFF_JSFUNCTION_CONTEXT;
 extern ssize_t V8_OFF_JSFUNCTION_SHARED;
 extern ssize_t V8_OFF_SHAREDFUNCTIONINFO_SCOPE_INFO;
+extern ssize_t V8_OFF_SHAREDFUNCTIONINFO_INFERRED_NAME;
+extern ssize_t V8_OFF_SCRIPT_LINE_ENDS;
+extern ssize_t V8_OFF_SCRIPT_NAME;
+extern ssize_t V8_OFF_SHAREDFUNCTIONINFO_FUNCTION_TOKEN_POSITION;
+extern ssize_t V8_OFF_SHAREDFUNCTIONINFO_NAME;
+extern ssize_t V8_OFF_SHAREDFUNCTIONINFO_SCRIPT;
 
 extern intptr_t V8_CONTEXT_IDX_CLOSURE;
 extern intptr_t V8_CONTEXT_IDX_EXT;

@@ -25,7 +25,6 @@
 #include <assert.h>
 #include <ctype.h>
 #include <inttypes.h>
-#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 #include <libproc.h>
@@ -1478,7 +1477,7 @@ read_heap_byte(uint8_t *valp, uintptr_t addr, ssize_t off)
  * that this is one of those fields that might be encoded or might not be,
  * depending on whether the address is word-aligned.
  */
-static int
+int
 read_heap_maybesmi(uintptr_t *valp, uintptr_t addr, ssize_t off)
 {
 #ifdef _LP64
