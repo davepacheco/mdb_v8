@@ -6169,21 +6169,26 @@ static int
 dcmd_v8str(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 {
 	boolean_t opt_v = B_FALSE;
-	char buf[512 * 1024];
-	char *bufp;
-	size_t len;
+	uint64_t bufsz = 64 * 1024;
+	v8string_t *strp;
+	mdbv8_strbuf_t *strb;
 
-	if (mdb_getopts(argc, argv, 'v', MDB_OPT_SETBITS, B_TRUE, &opt_v,
-	    NULL) != argc)
+	if (mdb_getopts(argc, argv,
+	    'v', MDB_OPT_SETBITS, B_TRUE, &opt_v,
+	    'N', MDB_OPT_UINT64, &bufsz, NULL) != argc) {
 		return (DCMD_USAGE);
+	}
 
-	bufp = buf;
-	len = sizeof (buf);
-	if (jsstr_print(addr, (opt_v ? JSSTR_VERBOSE : JSSTR_NONE) |
-	    JSSTR_QUOTED, &bufp, &len) != 0)
+	if ((strb = mdbv8_strbuf_alloc(bufsz, UM_GC)) == NULL ||
+	    (strp = v8string_load(addr, UM_GC)) == NULL) {
+		return (DCMD_ERR);
+	}
+
+	if (v8string_write(strp, strb, MSF_JSON,
+	    (opt_v ? JSSTR_VERBOSE : JSSTR_NONE) | JSSTR_QUOTED) != 0)
 		return (DCMD_ERR);
 
-	mdb_printf("%s\n", buf);
+	mdb_printf("%s\n", mdbv8_strbuf_tocstr(strb));
 	return (DCMD_OK);
 }
 

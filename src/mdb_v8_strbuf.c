@@ -54,7 +54,7 @@ mdbv8_strbuf_free(mdbv8_strbuf_t *strb)
 void
 mdbv8_strbuf_init(mdbv8_strbuf_t *strb, char *buf, size_t bufsz)
 {
-	bzero(&strb, sizeof (*strb));
+	bzero(strb, sizeof (*strb));
 	strb->ms_buf = buf;
 	strb->ms_bufsz = bufsz;
 	strb->ms_flags = MSB_NOALLOC;
@@ -72,10 +72,10 @@ mdbv8_strbuf_bufsz(mdbv8_strbuf_t *strb)
 size_t
 mdbv8_strbuf_bytesleft(mdbv8_strbuf_t *strb)
 {
-	if (strb->ms_curbufsz < strb->ms_reservesz)
+	if (strb->ms_curbufsz - 1 < strb->ms_reservesz)
 		return (0);
 
-	return (strb->ms_curbufsz - strb->ms_reservesz);
+	return (strb->ms_curbufsz - 1 - strb->ms_reservesz);
 }
 
 void
@@ -150,8 +150,12 @@ mdbv8_strbuf_vsprintf(mdbv8_strbuf_t *strb, const char *format, va_list alist)
 {
 	size_t rv, len;
 
-	rv = vsnprintf(strb->ms_curbuf, strb->ms_curbufsz, format, alist);
-	len = MIN(rv, strb->ms_curbufsz);
+	if (strb->ms_curbufsz <= strb->ms_reservesz)
+		return;
+
+	rv = vsnprintf(strb->ms_curbuf, strb->ms_curbufsz - strb->ms_reservesz,
+	    format, alist);
+	len = MIN(rv, strb->ms_curbufsz - strb->ms_reservesz - 1);
 	strb->ms_curbufsz -= len;
 	strb->ms_curbuf += len;
 }
@@ -169,7 +173,7 @@ mdbv8_strbuf_appends(mdbv8_strbuf_t *strb, const char *src,
 	size_t i, len;
 
 	len = strlen(src);
-	for (i = 0; i <= len; i++) {
+	for (i = 0; i < len; i++) {
 		mdbv8_strbuf_appendc(strb, src[i], flags);
 	}
 }

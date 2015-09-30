@@ -102,7 +102,7 @@ typedef struct v8string v8string_t;
 typedef enum {
 	JSSTR_NONE,
 	JSSTR_NUDE	= JSSTR_NONE,
-	
+
 	JSSTR_FLAGSHIFT = 16,
 	JSSTR_VERBOSE   = (0x1 << JSSTR_FLAGSHIFT),
 	JSSTR_QUOTED    = (0x2 << JSSTR_FLAGSHIFT),

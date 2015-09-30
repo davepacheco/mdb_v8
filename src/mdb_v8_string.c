@@ -85,7 +85,7 @@ v8string_load(uintptr_t addr, int memflags)
 	}
 
 	strp->v8s_addr = addr;
-	strp->v8s_len = V8_SMI_VALUE(length);
+	strp->v8s_len = length;
 	strp->v8s_type = type;
 	strp->v8s_memflags = memflags;
 
@@ -291,17 +291,6 @@ v8string_write_seq(v8string_t *strp, mdbv8_strbuf_t *strb,
 		i = 0;
 
 		while (nreadchrs < slicelen && i < toread) {
-			if ((v8flags & JSSTR_ISASCII) != 0) {
-				mdbv8_strbuf_appendc(strb, buf[i], strflags);
-			} else {
-				assert(i % 2 == 0);
-				chrval = *((uint16_t *)(buf + i));
-				mdbv8_strbuf_appendc(strb, chrval, strflags);
-			}
-
-			nreadchrs++;
-			i += bytesperchar;
-
 			/*
 			 * If we're low on space in the buffer, then try to
 			 * leave enough space for an ellipsis.  Note that we
@@ -312,9 +301,8 @@ v8string_write_seq(v8string_t *strp, mdbv8_strbuf_t *strb,
 			 * will expand to more than one byte.
 			 */
 			bufbytesleft = mdbv8_strbuf_bytesleft(strb);
-			if (bufbytesleft <= sizeof ("[...]")) {
+			if (bufbytesleft <= sizeof ("[...]") - 1) {
 				mdbv8_strbuf_appends(strb, "[...]", strflags);
-				bufbytesleft = mdbv8_strbuf_bytesleft(strb);
 				/*
 				 * XXX It would be nice if callers could know
 				 * whether the string was truncated or not.
@@ -331,6 +319,17 @@ v8string_write_seq(v8string_t *strp, mdbv8_strbuf_t *strb,
 				 */
 				return (0);
 			}
+
+			if ((v8flags & JSSTR_ISASCII) != 0) {
+				mdbv8_strbuf_appendc(strb, buf[i], strflags);
+			} else {
+				assert(i % 2 == 0);
+				chrval = *((uint16_t *)(buf + i));
+				mdbv8_strbuf_appendc(strb, chrval, strflags);
+			}
+
+			nreadchrs++;
+			i += bytesperchar;
 		}
 	}
 
