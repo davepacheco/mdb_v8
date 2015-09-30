@@ -15,6 +15,9 @@
 #include "mdb_v8_dbg.h"
 #include "mdb_v8_impl.h"
 
+#include <ctype.h>
+#include <stdio.h>
+
 typedef enum {
 	MSB_NOALLOC	= 0x1,	/* stack-allocated strbuf */
 } mdbv8_strbuf_flags_t;
@@ -26,7 +29,7 @@ mdbv8_strbuf_alloc(size_t nbytes, int memflags)
 
 	if ((strb = mdb_zalloc(sizeof (*strb), memflags)) == NULL ||
 	    (strb->ms_buf = mdb_zalloc(nbytes, memflags)) == NULL) {
-		maybefree(strb);
+		maybefree(strb, sizeof (*strb), memflags);
 		return (NULL);
 	}
 
@@ -44,8 +47,8 @@ mdbv8_strbuf_free(mdbv8_strbuf_t *strb)
 		return;
 	}
 
-	maybefree(strb->ms_buf);
-	maybefree(strb);
+	maybefree(strb->ms_buf, strb->ms_bufsz, strb->ms_memflags);
+	maybefree(strb, sizeof (*strb), strb->ms_memflags);
 }
 
 void
@@ -69,7 +72,10 @@ mdbv8_strbuf_bufsz(mdbv8_strbuf_t *strb)
 size_t
 mdbv8_strbuf_bytesleft(mdbv8_strbuf_t *strb)
 {
-	return (MAX(0, strb->ms_curbufsz - strb->ms_reservesz));
+	if (strb->ms_curbufsz < strb->ms_reservesz)
+		return (0);
+
+	return (strb->ms_curbufsz - strb->ms_reservesz);
 }
 
 void
@@ -126,20 +132,17 @@ mdbv8_strbuf_appendc(mdbv8_strbuf_t *strb, uint16_t c,
 		}
 	}
 
-	mdbv8_strbuf_sprintf("%c", c);
+	mdbv8_strbuf_sprintf(strb, "%c", c);
 }
 
 void
 mdbv8_strbuf_sprintf(mdbv8_strbuf_t *strb, const char *format, ...)
 {
 	va_list alist;
-	size_t rv;
 
 	va_start(alist, format);
-	rv = mdbv8_strbuf_vsprintf(strb, format, alist);
+	mdbv8_strbuf_vsprintf(strb, format, alist);
 	va_end(alist);
-
-	return (rv);
 }
 
 void

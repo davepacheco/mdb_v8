@@ -39,6 +39,7 @@
 #define	_MDBV8DBG_H
 
 #include <stdarg.h>
+#include <sys/types.h>
 
 /*
  * Basic types
@@ -85,7 +86,7 @@ size_t mdbv8_strbuf_bytesleft(mdbv8_strbuf_t *);
 
 void mdbv8_strbuf_rewind(mdbv8_strbuf_t *);
 void mdbv8_strbuf_reserve(mdbv8_strbuf_t *, ssize_t);
-void mdbv8_strbuf_appendc(mdbv8_strbuf_t *, char, mdbv8_strappend_flags_t);
+void mdbv8_strbuf_appendc(mdbv8_strbuf_t *, uint16_t, mdbv8_strappend_flags_t);
 void mdbv8_strbuf_appends(mdbv8_strbuf_t *, const char *,
     mdbv8_strappend_flags_t);
 void mdbv8_strbuf_sprintf(mdbv8_strbuf_t *, const char *, ...);
@@ -96,13 +97,33 @@ const char *mdbv8_strbuf_tocstr(mdbv8_strbuf_t *);
 /*
  * Working with JavaScript strings
  */
-typedef struct v8_string v8_string_t;
+typedef struct v8string v8string_t;
+
+typedef enum {
+	JSSTR_NONE,
+	JSSTR_NUDE	= JSSTR_NONE,
+	
+	JSSTR_FLAGSHIFT = 16,
+	JSSTR_VERBOSE   = (0x1 << JSSTR_FLAGSHIFT),
+	JSSTR_QUOTED    = (0x2 << JSSTR_FLAGSHIFT),
+	JSSTR_ISASCII   = (0x4 << JSSTR_FLAGSHIFT),
+
+	JSSTR_MAXDEPTH  = 512
+} v8string_flags_t;
+
+/*
+ * XXX These definitions should move into mdb_v8_string.c when references in
+ * mdb_v8.c are removed.
+ */
+#define	JSSTR_DEPTH(f)		((f) & ((1 << JSSTR_FLAGSHIFT) - 1))
+#define	JSSTR_BUMPDEPTH(f)	((f) + 1)
 
 v8string_t *v8string_load(uintptr_t, int);
-void v8string_free(v8_string_t *);
+void v8string_free(v8string_t *);
 
 size_t v8string_length(v8string_t *);
-int v8string_write(mdbv8_strbuf_t *);
+int v8string_write(v8string_t *, mdbv8_strbuf_t *,
+    mdbv8_strappend_flags_t, v8string_flags_t);
 
 
 /*

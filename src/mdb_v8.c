@@ -228,9 +228,6 @@ ssize_t V8_OFF_JSARRAYBUFFER_BACKINGSTORE;
 ssize_t V8_OFF_JSARRAYBUFFERVIEW_BUFFER;
 ssize_t V8_OFF_JSARRAYBUFFERVIEW_CONTENT_OFFSET;
 
-/* see node_string.h */
-#define	NODE_OFF_EXTSTR_DATA		sizeof (uintptr_t)
-
 #define	V8_CONSTANT_OPTIONAL		1
 #define	V8_CONSTANT_HASFALLBACK		2
 #define	V8_CONSTANT_REMOVED		4
@@ -1215,17 +1212,6 @@ conf_class_compute_offsets(v8_class_t *clp)
 /*
  * Utility functions
  */
-#define	JSSTR_NONE		0
-#define	JSSTR_NUDE		JSSTR_NONE
-
-#define	JSSTR_FLAGSHIFT		16
-#define	JSSTR_VERBOSE		(0x1 << JSSTR_FLAGSHIFT)
-#define	JSSTR_QUOTED		(0x2 << JSSTR_FLAGSHIFT)
-#define	JSSTR_ISASCII		(0x4 << JSSTR_FLAGSHIFT)
-
-#define	JSSTR_MAXDEPTH		512
-#define	JSSTR_DEPTH(f)		((f) & ((1 << JSSTR_FLAGSHIFT) - 1))
-#define	JSSTR_BUMPDEPTH(f)	((f) + 1)
 
 static int jsstr_print(uintptr_t, uint_t, char **, size_t *);
 static boolean_t jsobj_is_undefined(uintptr_t addr);
@@ -1382,7 +1368,7 @@ read_heap_ptr(uintptr_t *valp, uintptr_t addr, ssize_t off)
  * Like read_heap_ptr, but assume the field is an SMI and store the actual value
  * into *valp rather than the encoded representation.
  */
-static int
+int
 read_heap_smi(uintptr_t *valp, uintptr_t addr, ssize_t off)
 {
 	if (read_heap_ptr(valp, addr, off) != 0)

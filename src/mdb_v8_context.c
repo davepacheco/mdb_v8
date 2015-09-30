@@ -673,12 +673,15 @@ v8funcinfo_funcname(v8funcinfo_t *fip, mdbv8_strbuf_t *strb,
 {
 	/* XXX want to use inferred name if this is empty */
 	/* XXX want v8string_load(), and what if that fails? */
-	return (v8string_print(fip->v8fi_funcname, strb, flags));
+	// return (v8string_print(fip->v8fi_funcname, strb, flags));
+	return (-1);
 }
 
 int
 v8funcinfo_scriptpath(v8funcinfo_t *fip, mdbv8_strbuf_t *strb,
     mdbv8_strappend_flags_t flags)
 {
-	return (v8string_print(fip->v8fi_scriptpath, strb, flags));
+	/* XXX */
+	return (-1);
+	// return (v8string_print(fip->v8fi_scriptpath, strb, flags));
 }

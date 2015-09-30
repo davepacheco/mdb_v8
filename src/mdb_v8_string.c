@@ -14,6 +14,12 @@
  * within mdb_v8 for working with C strings.
  */
 
+#include "mdb_v8_dbg.h"
+#include "mdb_v8_impl.h"
+#include "v8dbg.h"
+
+#include <assert.h>
+
 struct v8string {
 	uintptr_t	v8s_addr;
 	size_t		v8s_len;
@@ -26,8 +32,8 @@ struct v8string {
 		} v8s_consinfo;
 
 		struct {
-			struct v8string *v8s_sliced_parent;
-			int		v8s_sliced_offset;
+			uintptr_t	v8s_sliced_parent;
+			uintptr_t	v8s_sliced_offset;
 		} v8s_slicedinfo;
 
 		struct {
@@ -50,15 +56,15 @@ v8string_t *
 v8string_load(uintptr_t addr, int memflags)
 {
 	uint8_t type;
-	int length;
-	v8_string_t *strp;
+	uintptr_t length;
+	v8string_t *strp;
 
 	if (read_typebyte(&type, addr) != 0) {
 		v8_warn("could not read type for string: %p\n", addr);
 		return (NULL);
 	}
 
-	if (!V8_TYPE_STRING(typebyte)) {
+	if (!V8_TYPE_STRING(type)) {
 		v8_warn("not a string: %p\n", addr);
 		return (NULL);
 	}
@@ -79,7 +85,7 @@ v8string_load(uintptr_t addr, int memflags)
 	}
 
 	strp->v8s_addr = addr;
-	strp->v8s_len = length;
+	strp->v8s_len = V8_SMI_VALUE(length);
 	strp->v8s_type = type;
 	strp->v8s_memflags = memflags;
 
@@ -145,7 +151,6 @@ int
 v8string_write(v8string_t *strp, mdbv8_strbuf_t *strb,
     mdbv8_strappend_flags_t strflags, v8string_flags_t v8flags)
 {
-	boolean_t verbose = (v8flags & JSSTR_VERBOSE) != 0;
 	int err;
 	uint8_t type;
 	boolean_t quoted;
@@ -155,11 +160,11 @@ v8string_write(v8string_t *strp, mdbv8_strbuf_t *strb,
 	 * mdbv8_strbuf_t.
 	 */
 	if (JSSTR_DEPTH(v8flags) > JSSTR_MAXDEPTH) {
-		mdbv8_strbuf_sprintf("<maximum depth exceeded>");
+		mdbv8_strbuf_sprintf(strb, "<maximum depth exceeded>");
 		return (-1);
 	}
 
-	type = v8s->v8s_type;
+	type = strp->v8s_type;
 	if (V8_STRENC_ASCII(type))
 		v8flags |= JSSTR_ISASCII;
 	else
@@ -242,9 +247,7 @@ v8string_write_seq(v8string_t *strp, mdbv8_strbuf_t *strb,
 		slicelen = uslicelen;
 	}
 
-	assert(sliceoffset >= 0);
 	assert(sliceoffset <= nstrchrs);
-	assert(slicelen >= 0);
 	assert(slicelen <= nstrchrs);
 	assert(sliceoffset + slicelen <= nstrchrs);
 
@@ -261,10 +264,10 @@ v8string_write_seq(v8string_t *strp, mdbv8_strbuf_t *strb,
 	 */
 	if ((v8flags & JSSTR_ISASCII) != 0) {
 		bytesperchar = 1;
-		charsp = addr + V8_OFF_SEQASCIISTR_CHARS;
+		charsp = strp->v8s_addr + V8_OFF_SEQASCIISTR_CHARS;
 	} else {
 		bytesperchar = 2;
-		charsp = addr + V8_OFF_SEQTWOBYTESTR_CHARS;
+		charsp = strp->v8s_addr + V8_OFF_SEQTWOBYTESTR_CHARS;
 	}
 
 	/*
@@ -276,9 +279,10 @@ v8string_write_seq(v8string_t *strp, mdbv8_strbuf_t *strb,
 	nreadchrs = 0;
 	while (nreadchrs < slicelen) {
 		size_t i, bufbytesleft, toread;
+		uint16_t chrval;
 
 		toread = MIN(bufsz, bytesperchar * (slicelen - nreadchrs));
-		if (mdb_read(buf, toread, charsp + nreadoffset) == -1) {
+		if (mdb_vread(buf, toread, charsp + nreadoffset) == -1) {
 			v8_warn("failed to read SeqString data");
 			return (-1);
 		}
@@ -309,7 +313,7 @@ v8string_write_seq(v8string_t *strp, mdbv8_strbuf_t *strb,
 			 */
 			bufbytesleft = mdbv8_strbuf_bytesleft(strb);
 			if (bufbytesleft <= sizeof ("[...]")) {
-				mdbv8_strbuf_appends(strb, "[...]");
+				mdbv8_strbuf_appends(strb, "[...]", strflags);
 				bufbytesleft = mdbv8_strbuf_bytesleft(strb);
 				/*
 				 * XXX It would be nice if callers could know
@@ -334,7 +338,7 @@ v8string_write_seq(v8string_t *strp, mdbv8_strbuf_t *strb,
 }
 
 static int
-v8string_write_cons(v8string_t *strp, mdbv8_strbuf_t *strp,
+v8string_write_cons(v8string_t *strp, mdbv8_strbuf_t *strb,
     mdbv8_strappend_flags_t strflags, v8string_flags_t v8flags)
 {
 	/* XXX */
@@ -343,7 +347,7 @@ v8string_write_cons(v8string_t *strp, mdbv8_strbuf_t *strp,
 }
 
 static int
-v8string_write_sliced(v8string_t *strp, mdbv8_strbuf_t *strp,
+v8string_write_sliced(v8string_t *strp, mdbv8_strbuf_t *strb,
     mdbv8_strappend_flags_t strflags, v8string_flags_t v8flags)
 {
 	/* XXX */
@@ -352,13 +356,11 @@ v8string_write_sliced(v8string_t *strp, mdbv8_strbuf_t *strp,
 }
 
 static int
-v8string_write_ext(v8string_t *strp, mdbv8_strbuf_t *strp,
+v8string_write_ext(v8string_t *strp, mdbv8_strbuf_t *strb,
     mdbv8_strappend_flags_t strflags, v8string_flags_t v8flags)
 {
-	uintptr_t ptr1, ptr2;
-
 	if ((v8flags & JSSTR_ISASCII) == 0) {
-		mdbv8_strbuf_sprintf(strp, "<external two-byte string>");
+		mdbv8_strbuf_sprintf(strb, "<external two-byte string>");
 		return (0);
 	}
 

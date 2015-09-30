@@ -42,6 +42,7 @@ void maybefree(void *, size_t, int);
 int read_heap_array(uintptr_t, uintptr_t **, size_t *, int);
 int read_heap_maybesmi(uintptr_t *, uintptr_t, ssize_t);
 int read_heap_ptr(uintptr_t *, uintptr_t, ssize_t);
+int read_heap_smi(uintptr_t *, uintptr_t, ssize_t);
 int read_typebyte(uint8_t *, uintptr_t);
 void v8_warn(const char *, ...);
 
@@ -51,8 +52,27 @@ void v8_warn(const char *, ...);
  */
 extern intptr_t V8_TYPE_JSFUNCTION;
 
+extern intptr_t V8_IsNotStringMask;
+extern intptr_t V8_StringTag;
+extern intptr_t V8_NotStringTag;
+extern intptr_t V8_StringEncodingMask;
+extern intptr_t V8_TwoByteStringTag;
+extern intptr_t V8_AsciiStringTag;
+extern intptr_t V8_OneByteStringTag;
+extern intptr_t V8_StringRepresentationMask;
+extern intptr_t V8_SeqStringTag;
+extern intptr_t V8_ConsStringTag;
+extern intptr_t V8_SlicedStringTag;
+extern intptr_t V8_ExternalStringTag;
+
+extern ssize_t V8_OFF_CONSSTRING_FIRST;
+extern ssize_t V8_OFF_CONSSTRING_SECOND;
+extern ssize_t V8_OFF_EXTERNALSTRING_RESOURCE;
 extern ssize_t V8_OFF_JSFUNCTION_CONTEXT;
 extern ssize_t V8_OFF_JSFUNCTION_SHARED;
+extern ssize_t V8_OFF_SEQASCIISTR_CHARS;
+extern ssize_t V8_OFF_SEQONEBYTESTR_CHARS;
+extern ssize_t V8_OFF_SEQTWOBYTESTR_CHARS;
 extern ssize_t V8_OFF_SHAREDFUNCTIONINFO_SCOPE_INFO;
 extern ssize_t V8_OFF_SHAREDFUNCTIONINFO_INFERRED_NAME;
 extern ssize_t V8_OFF_SCRIPT_LINE_ENDS;
@@ -60,6 +80,9 @@ extern ssize_t V8_OFF_SCRIPT_NAME;
 extern ssize_t V8_OFF_SHAREDFUNCTIONINFO_FUNCTION_TOKEN_POSITION;
 extern ssize_t V8_OFF_SHAREDFUNCTIONINFO_NAME;
 extern ssize_t V8_OFF_SHAREDFUNCTIONINFO_SCRIPT;
+extern ssize_t V8_OFF_SLICEDSTRING_PARENT;
+extern ssize_t V8_OFF_SLICEDSTRING_OFFSET;
+extern ssize_t V8_OFF_STRING_LENGTH;
 
 extern intptr_t V8_CONTEXT_IDX_CLOSURE;
 extern intptr_t V8_CONTEXT_IDX_EXT;
@@ -79,5 +102,8 @@ extern intptr_t V8_SmiTag;
 extern intptr_t V8_SmiTagMask;
 extern intptr_t V8_SmiValueShift;
 extern intptr_t V8_SmiShiftSize;
+
+/* see node_string.h */
+#define	NODE_OFF_EXTSTR_DATA		sizeof (uintptr_t)
 
 #endif	/* _MDBV8IMPL_H */
