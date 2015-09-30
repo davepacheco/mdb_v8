@@ -80,6 +80,7 @@ void mdbv8_strbuf_free(mdbv8_strbuf_t *);
 void mdbv8_strbuf_init(mdbv8_strbuf_t *, char *, size_t);
 
 size_t mdbv8_strbuf_bufsz(mdbv8_strbuf_t *);
+size_t mdbv8_strbuf_bytesleft(mdbv8_strbuf_t *);
 
 void mdbv8_strbuf_rewind(mdbv8_strbuf_t *);
 void mdbv8_strbuf_appendc(mdbv8_strbuf_t *, char, mdbv8_strappend_flags_t);

@@ -64,6 +64,12 @@ mdbv8_strbuf_bufsz(mdbv8_strbuf_t *strb)
 	return (strb->ms_bufsz);
 }
 
+size_t
+mdbv8_strbuf_bytesleft(mdbv8_strbuf_t *strb)
+{
+	return (strb->ms_curbufsz);
+}
+
 void
 mdbv8_strbuf_rewind(mdbv8_strbuf_t *strb)
 {

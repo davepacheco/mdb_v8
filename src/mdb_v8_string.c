@@ -9,7 +9,9 @@
  */
 
 /*
- * mdb_v8_string.c: interface for working with V8 strings
+ * mdb_v8_string.c: interface for working with V8 (JavaScript) string values.
+ * This differs from mdb_v8_strbuf.[hc], which is a general-purpose interface
+ * within mdb_v8 for working with C strings.
  */
 
 struct v8string {
@@ -144,11 +146,56 @@ v8string_write(v8string_t *strp, mdbv8_strbuf_t *strb,
 }
 
 static int
-v8string_write_seq(v8string_t *strp, mdbv8_strbuf_t *strp,
+v8string_write_seq(v8string_t *strp, mdbv8_strbuf_t *strb,
     mdbv8_strappend_flags_t strflags, v8string_flags_t v8flags,
     size_t sliceoffset, ssize_t slicelen)
 {
-	/* XXX */
+	size_t nstrchrs, nstrbytes;
+	size_t nreadoffset, nreadchrs, nreadbytes;
+	boolean_t verbose;
+	uintptr_t charsp;
+	size_t blen, bufsz;
+	char buf[8192];
+
+	verbose = (v8flags & JSSTR_VERBOSE) != 0;
+	if (slicelen != -1) {
+		nstrchrs = slicelen;
+	}
+
+	bufsz = sizeof (buf);
+	nstrchrs = v8string_length(strp);
+	nreadchrs = (slicelen == -1 ? slicelen : nstrchrs) - sliceoffset;
+	if (nreadchrs <= 0) {
+		if (verbose) {
+			mdb_printf("str %p: length %d chars (%d bytes), "
+			    "slice %d to %d: 0 chars\n", strp->v8s_addr,
+			    nstrchrs, nstrbytes, sliceoffset, slicelen);
+		}
+
+		/* XXX quoted */
+		return (0);
+	}
+
+	if ((v8flags & JSSTR_ISASCII) != 0) {
+		nstrbytes = nstrchrs;
+		nreadoffset = sliceoffset;
+		nreadbytes = nreadchrs;
+		charsp = addr + V8_OFF_SEQASCIISTR_CHARS;
+	} else {
+		nstrbytes = 2 * nstrchrs;
+		nreadoffset = 2 * sliceoffset;
+		nreadbytes = nreadchrs;
+		charsp = addr + V8_OFF_SEQTWOBYTESTR_CHARS;
+	}
+
+	if (verbose) {
+		mdb_printf("str %p: length %d chars (%d bytes), slice %d "
+		    "to %d, internal buffer size %d",
+		    strp->v8s_addr, nstrchrs, nstrbytes, sliceoffset,
+		    slicelen, bufsz);
+	}
+
+	/* XXX working here */
 	v8_warn("not yet supported: sequential strings\n");
 	return (-1);
 }
