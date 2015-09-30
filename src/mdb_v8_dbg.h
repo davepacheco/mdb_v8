@@ -49,6 +49,7 @@ typedef struct {
 	size_t	ms_bufsz;	/* full buffer size */
 	char	*ms_curbuf;	/* current position in buffer */
 	size_t	ms_curbufsz;	/* current buffer size left */
+	size_t	ms_reservesz;	/* bytes reserved */
 	int	ms_flags;	/* buffer flags */
 	int	ms_memflags;	/* memory allocation flags */
 } mdbv8_strbuf_t;
@@ -83,6 +84,7 @@ size_t mdbv8_strbuf_bufsz(mdbv8_strbuf_t *);
 size_t mdbv8_strbuf_bytesleft(mdbv8_strbuf_t *);
 
 void mdbv8_strbuf_rewind(mdbv8_strbuf_t *);
+void mdbv8_strbuf_reserve(mdbv8_strbuf_t *, ssize_t);
 void mdbv8_strbuf_appendc(mdbv8_strbuf_t *, char, mdbv8_strappend_flags_t);
 void mdbv8_strbuf_appends(mdbv8_strbuf_t *, const char *,
     mdbv8_strappend_flags_t);
@@ -96,7 +98,7 @@ const char *mdbv8_strbuf_tocstr(mdbv8_strbuf_t *);
  */
 typedef struct v8_string v8_string_t;
 
-v8string_t * v8string_load(uintptr_t, int);
+v8string_t *v8string_load(uintptr_t, int);
 void v8string_free(v8_string_t *);
 
 size_t v8string_length(v8string_t *);

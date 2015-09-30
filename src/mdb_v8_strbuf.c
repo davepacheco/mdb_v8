@@ -32,6 +32,7 @@ mdbv8_strbuf_alloc(size_t nbytes, int memflags)
 
 	strb->ms_bufsz = nbytes;
 	strb->ms_memflags = memflags;
+	strb->ms_reservesz = 0;
 	mdbv8_strbuf_rewind(strb);
 	return (strb);
 }
@@ -55,6 +56,7 @@ mdbv8_strbuf_init(mdbv8_strbuf_t *strb, char *buf, size_t bufsz)
 	strb->ms_bufsz = bufsz;
 	strb->ms_flags = MSB_NOALLOC;
 	strb->ms_memflags = 0;
+	strb->ms_reservesz = 0;
 	mdbv8_strbuf_rewind(strb);
 }
 
@@ -67,7 +69,7 @@ mdbv8_strbuf_bufsz(mdbv8_strbuf_t *strb)
 size_t
 mdbv8_strbuf_bytesleft(mdbv8_strbuf_t *strb)
 {
-	return (strb->ms_curbufsz);
+	return (MAX(0, strb->ms_curbufsz - strb->ms_reservesz));
 }
 
 void
@@ -76,6 +78,12 @@ mdbv8_strbuf_rewind(mdbv8_strbuf_t *strb)
 	strb->ms_curbuf = strb->ms_buf;
 	strb->ms_curbufsz = strb->ms_bufsz;
 	strb->ms_curbuf[0] = '\0';
+}
+
+void
+mdbv8_strbuf_reserve(mdbv8_strbuf_t *strb, ssize_t nbytes)
+{
+	strb->ms_reservesz += nbytes;
 }
 
 void

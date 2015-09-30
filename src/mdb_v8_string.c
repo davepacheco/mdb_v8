@@ -32,8 +32,8 @@ struct v8string {
 
 		struct {
 			uintptr_t	v8s_external_data;
+			uintptr_t	v8s_external_nodedata;
 		} v8s_external;
-		/* XXX working here */
 	} v8s_info;
 };
 
@@ -83,7 +83,42 @@ v8string_load(uintptr_t addr, int memflags)
 	strp->v8s_type = type;
 	strp->v8s_memflags = memflags;
 
+	if (V8_STRREP_CONS(type)) {
+		if (read_heap_ptr(&strp->v8s_info.v8s_consinfo.v8s_cons_p1,
+		    addr, V8_OFF_CONSSTRING_FIRST) != 0 ||
+		    read_heap_ptr(&strp->v8s_info.v8s_consinfo.v8s_cons_p2,
+		    addr, V8_OFF_CONSSTRING_SECOND) != 0) {
+			v8_warn("failed to read cons ptrs: %p\n", addr);
+			goto fail;
+		}
+	} else if (V8_STRREP_SLICED(type)) {
+		if (read_heap_ptr(
+		    &strp->v8s_info.v8s_slicedinfo.v8s_sliced_parent,
+		    addr, V8_OFF_SLICEDSTRING_PARENT) != 0 ||
+		    read_heap_smi(
+		    &strp->v8s_info.v8s_slicedinfo.v8s_sliced_offset,
+		    addr, V8_OFF_SLICEDSTRING_OFFSET) != 0) {
+			v8_warn("failed to read slice info: %p\n", addr);
+			goto fail;
+		}
+	} else if (V8_STRREP_EXT(type)) {
+		if (read_heap_ptr(
+		    &strp->v8s_info.v8s_external.v8s_external_data,
+		    addr, V8_OFF_EXTERNALSTRING_RESOURCE) != 0 ||
+		    read_heap_ptr(
+		    &strp->v8s_info.v8s_external.v8s_external_nodedata,
+		    strp->v8s_info.v8s_external.v8s_external_data,
+		    NODE_OFF_EXTSTR_DATA) != 0) {
+			v8_warn("failed to read node string: %p\n", addr);
+			goto fail;
+		}
+	}
+
 	return (strp);
+
+fail:
+	v8string_free(strp);
+	return (NULL);
 }
 
 void
@@ -113,6 +148,7 @@ v8string_write(v8string_t *strp, mdbv8_strbuf_t *strb,
 	boolean_t verbose = (v8flags & JSSTR_VERBOSE) != 0;
 	int err;
 	uint8_t type;
+	boolean_t quoted;
 
 	/*
 	 * XXX For verbose, need to write obj_jstype() replacement that uses
@@ -129,7 +165,14 @@ v8string_write(v8string_t *strp, mdbv8_strbuf_t *strb,
 	else
 		v8flags &= ~JSSTR_ISASCII;
 
-	v8flags = JSSTR_BUMPDEPTH(v8flags);
+	quoted = (v8flags & JSSTR_QUOTED) != 0;
+	if (quoted) {
+		mdbv8_strbuf_appendc(strb, '"', strflags);
+		v8flags &= ~JSSTR_QUOTED;
+		mdbv8_strbuf_reserve(strb, 1);
+	}
+
+	v8flags = JSSTR_BUMPDEPTH(v8flags) & (~JSSTR_QUOTED);
 	if (V8_STRREP_SEQ(type)) {
 		err = v8string_write_seq(strp, strb, strflags, v8flags, 0, -1);
 	} else if (V8_STRREP_CONS(type)) {
@@ -142,62 +185,152 @@ v8string_write(v8string_t *strp, mdbv8_strbuf_t *strb,
 		err = v8string_write_sliced(strp, strb, strflags, v8flags);
 	}
 
+	if (quoted) {
+		mdbv8_strbuf_reserve(strb, -1);
+		mdbv8_strbuf_appendc(strb, '"', strflags);
+	}
+
 	return (err);
 }
 
 static int
 v8string_write_seq(v8string_t *strp, mdbv8_strbuf_t *strb,
     mdbv8_strappend_flags_t strflags, v8string_flags_t v8flags,
-    size_t sliceoffset, ssize_t slicelen)
+    size_t usliceoffset, ssize_t uslicelen)
 {
-	size_t nstrchrs, nstrbytes;
-	size_t nreadoffset, nreadchrs, nreadbytes;
-	boolean_t verbose;
-	uintptr_t charsp;
-	size_t blen, bufsz;
-	char buf[8192];
-
-	verbose = (v8flags & JSSTR_VERBOSE) != 0;
-	if (slicelen != -1) {
-		nstrchrs = slicelen;
-	}
+	size_t sliceoffset;	/* actual slice offset */
+	size_t slicelen;	/* actual slice length */
+	size_t nstrchrs;	/* characters in the string */
+	size_t nreadoffset;	/* offset (in bytes) from start of string */
+	size_t nreadchrs;	/* total number of characters to read */
+	size_t bytesperchar;	/* bytes per character */
+	uintptr_t charsp;	/* start of string */
+	size_t bufsz;		/* internal buffer size */
+	char buf[8192];		/* internal buffer */
 
 	bufsz = sizeof (buf);
 	nstrchrs = v8string_length(strp);
-	nreadchrs = (slicelen == -1 ? slicelen : nstrchrs) - sliceoffset;
-	if (nreadchrs <= 0) {
-		if (verbose) {
-			mdb_printf("str %p: length %d chars (%d bytes), "
-			    "slice %d to %d: 0 chars\n", strp->v8s_addr,
-			    nstrchrs, nstrbytes, sliceoffset, slicelen);
-		}
 
-		/* XXX quoted */
-		return (0);
+	/*
+	 * This function operates on a slice of the string, identified by
+	 * initial offset ("sliceoffset") and length ("slicelen").  The special
+	 * length value "-1" denotes the range from "sliceoffset" to the end of
+	 * the string.  Thus, to denote the entire string, the caller would
+	 * specify "sliceoffset" 0 and "slicelen" -1.  We normalize the slice
+	 * offset and length here and store these values separately from the
+	 * caller-provided values for debugging purposes.
+	 */
+	if (usliceoffset > nstrchrs) {
+		sliceoffset = nstrchrs;
+	} else {
+		sliceoffset = usliceoffset;
 	}
 
+	if (uslicelen == -1) {
+		/*
+		 * The caller asked for everything from the offset to the end of
+		 * the string.  Calculate the actual value here.
+		 */
+		slicelen = nstrchrs - sliceoffset;
+	} else if (uslicelen > nstrchrs - sliceoffset) {
+		/*
+		 * The caller specified a length that would run past the end of
+		 * the string.  Truncate it to the end of the string.
+		 */
+		slicelen = nstrchrs - sliceoffset;
+	} else {
+		slicelen = uslicelen;
+	}
+
+	assert(sliceoffset >= 0);
+	assert(sliceoffset <= nstrchrs);
+	assert(slicelen >= 0);
+	assert(slicelen <= nstrchrs);
+	assert(sliceoffset + slicelen <= nstrchrs);
+
+	if ((v8flags & JSSTR_VERBOSE) != 0) {
+		mdb_printf("str %p: length %d chars, slice %d length %d "
+		    "(actually %d length %d)\n", strp->v8s_addr, nstrchrs,
+		    usliceoffset, uslicelen, sliceoffset, slicelen);
+	}
+
+	/*
+	 * We're going to read through the string's raw data, starting at the
+	 * requested offset.  The specific addresses depend on whether we're
+	 * looking at an ASCII or "two-byte" string.
+	 */
 	if ((v8flags & JSSTR_ISASCII) != 0) {
-		nstrbytes = nstrchrs;
-		nreadoffset = sliceoffset;
-		nreadbytes = nreadchrs;
+		bytesperchar = 1;
 		charsp = addr + V8_OFF_SEQASCIISTR_CHARS;
 	} else {
-		nstrbytes = 2 * nstrchrs;
-		nreadoffset = 2 * sliceoffset;
-		nreadbytes = nreadchrs;
+		bytesperchar = 2;
 		charsp = addr + V8_OFF_SEQTWOBYTESTR_CHARS;
 	}
 
-	if (verbose) {
-		mdb_printf("str %p: length %d chars (%d bytes), slice %d "
-		    "to %d, internal buffer size %d",
-		    strp->v8s_addr, nstrchrs, nstrbytes, sliceoffset,
-		    slicelen, bufsz);
+	/*
+	 * There's a lot of potential optimization in the loops below, but the
+	 * semantics are tricky, so let's gather data before assuming there's a
+	 * performance issue.
+	 */
+	nreadoffset = sliceoffset * bytesperchar;
+	nreadchrs = 0;
+	while (nreadchrs < slicelen) {
+		size_t i, bufbytesleft, toread;
+
+		toread = MIN(bufsz, bytesperchar * (slicelen - nreadchrs));
+		if (mdb_read(buf, toread, charsp + nreadoffset) == -1) {
+			v8_warn("failed to read SeqString data");
+			return (-1);
+		}
+
+		nreadoffset += toread;
+		i = 0;
+
+		while (nreadchrs < slicelen && i < toread) {
+			if ((v8flags & JSSTR_ISASCII) != 0) {
+				mdbv8_strbuf_appendc(strb, buf[i], strflags);
+			} else {
+				assert(i % 2 == 0);
+				chrval = *((uint16_t *)(buf + i));
+				mdbv8_strbuf_appendc(strb, chrval, strflags);
+			}
+
+			nreadchrs++;
+			i += bytesperchar;
+
+			/*
+			 * If we're low on space in the buffer, then try to
+			 * leave enough space for an ellipsis.  Note that we
+			 * can't calculate this once outside the loop (by
+			 * comparing the slice length to the space left in the
+			 * buffer) because some of the characters in the string
+			 * may be escaped when written out, in which case they
+			 * will expand to more than one byte.
+			 */
+			bufbytesleft = mdbv8_strbuf_bytesleft(strb);
+			if (bufbytesleft <= sizeof ("[...]")) {
+				mdbv8_strbuf_appends(strb, "[...]");
+				bufbytesleft = mdbv8_strbuf_bytesleft(strb);
+				/*
+				 * XXX It would be nice if callers could know
+				 * whether the string was truncated or not.
+				 * Maybe this whole interface would be cleaner
+				 * if we first calculated the number of bytes
+				 * required to store the result of this string.
+				 * Then we _could_ calculate ahead of time
+				 * how many of the string's characters to print.
+				 * And if we had that interface, callers could
+				 * make sure the buffer was large enough or know
+				 * that the string was truncated.  However, that
+				 * will require two passes, each of which
+				 * requires a bunch of mdb_vreads().
+				 */
+				return (0);
+			}
+		}
 	}
 
-	/* XXX working here */
-	v8_warn("not yet supported: sequential strings\n");
-	return (-1);
+	return (0);
 }
 
 static int
