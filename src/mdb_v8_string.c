@@ -19,6 +19,7 @@
 #include "v8dbg.h"
 
 #include <assert.h>
+#include <ctype.h>
 
 struct v8string {
 	uintptr_t	v8s_addr;
@@ -316,6 +317,8 @@ v8string_write_seq(v8string_t *strp, mdbv8_strbuf_t *strb,
 				 * that the string was truncated.  However, that
 				 * will require two passes, each of which
 				 * requires a bunch of mdb_vreads().
+				 * XXX that applies to the similar block in
+				 * v8string_write_ext() too.
 				 */
 				return (0);
 			}
@@ -358,12 +361,59 @@ static int
 v8string_write_ext(v8string_t *strp, mdbv8_strbuf_t *strb,
     mdbv8_strappend_flags_t strflags, v8string_flags_t v8flags)
 {
+	char buf[8192];
+	size_t bufsz;
+	size_t nread, ntotal;
+	uintptr_t charsp;
+
+	bufsz = sizeof (buf);
+	charsp = strp->v8s_info.v8s_external.v8s_external_nodedata;
+	ntotal = v8string_length(strp);
+	nread = 0;
+
+	if ((v8flags & JSSTR_VERBOSE) != 0) {
+		mdbv8_strbuf_sprintf(strb,
+		    "external string: %p "
+		    "(assuming node.js string (length %d))\n",
+		    strp->v8s_addr, ntotal);
+	}
+
 	if ((v8flags & JSSTR_ISASCII) == 0) {
 		mdbv8_strbuf_sprintf(strb, "<external two-byte string>");
 		return (0);
 	}
 
-	/* XXX */
-	v8_warn("not yet supported: external strings\n");
-	return (-1);
+	while (nread < ntotal) {
+		size_t i, ntoread;
+
+		ntoread = MIN(bufsz, ntotal - nread);
+		if (mdb_vread(buf, ntoread, charsp) == -1) {
+			mdbv8_strbuf_sprintf(strb,
+			    "<failed to read external string data>");
+			return (-1);
+		}
+
+		if (nread == 0 && buf[0] != '\0' && !isascii(buf[0])) {
+			mdbv8_strbuf_sprintf(strb,
+			    "<found non-ASCII external string data>");
+			return (-1);
+		}
+
+		nread += ntoread;
+		charsp += ntoread;
+		for (i = 0; i < ntoread; i++) {
+			/*
+			 * See v8string_write_seq().
+			 */
+			if (mdbv8_strbuf_bytesleft(strb) <=
+			    sizeof ("[...]") - 1) {
+				mdbv8_strbuf_appends(strb, "[...]", strflags);
+				return (0);
+			}
+
+			mdbv8_strbuf_appendc(strb, buf[i], strflags);
+		}
+	}
+
+	return (0);
 }

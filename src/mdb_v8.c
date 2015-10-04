@@ -6169,23 +6169,35 @@ static int
 dcmd_v8str(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 {
 	boolean_t opt_v = B_FALSE;
-	uint64_t bufsz = 64 * 1024;
+	boolean_t opt_r = B_FALSE;
+	int64_t bufsz = -1;
 	v8string_t *strp;
 	mdbv8_strbuf_t *strb;
 
 	if (mdb_getopts(argc, argv,
 	    'v', MDB_OPT_SETBITS, B_TRUE, &opt_v,
-	    'N', MDB_OPT_UINT64, &bufsz, NULL) != argc) {
+	    'N', MDB_OPT_UINT64, &bufsz,
+	    'r', MDB_OPT_SETBITS, B_TRUE, &opt_r, NULL) != argc) {
 		return (DCMD_USAGE);
 	}
 
-	if ((strb = mdbv8_strbuf_alloc(bufsz, UM_GC)) == NULL ||
-	    (strp = v8string_load(addr, UM_GC)) == NULL) {
+	if ((strp = v8string_load(addr, UM_GC)) == NULL) {
 		return (DCMD_ERR);
 	}
 
-	if (v8string_write(strp, strb, MSF_JSON,
-	    (opt_v ? JSSTR_VERBOSE : JSSTR_NONE) | JSSTR_QUOTED) != 0)
+	if (bufsz == -1) {
+		/* XXX + 10 is to avoid ellipsis behavior */
+		bufsz = v8string_length(strp) + 10;
+	}
+
+	if ((strb = mdbv8_strbuf_alloc(bufsz, UM_GC)) == NULL) {
+		return (DCMD_ERR);
+	}
+
+	if (v8string_write(strp, strb,
+	    opt_r ? MSF_ASCIIONLY : MSF_JSON,
+	    (opt_v ? JSSTR_VERBOSE : JSSTR_NONE) |
+	    (opt_r ? JSSTR_NONE : JSSTR_QUOTED)) != 0)
 		return (DCMD_ERR);
 
 	mdb_printf("%s\n", mdbv8_strbuf_tocstr(strb));
