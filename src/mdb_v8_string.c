@@ -343,18 +343,74 @@ static int
 v8string_write_cons(v8string_t *strp, mdbv8_strbuf_t *strb,
     mdbv8_strappend_flags_t strflags, v8string_flags_t v8flags)
 {
-	/* XXX */
-	v8_warn("not yet supported: cons strings\n");
-	return (-1);
+	uintptr_t str1addr, str2addr;
+	v8string_t *str1p, *str2p;
+	v8string_flags_t flags;
+	int rv = 0;
+
+	str1addr = strp->v8s_info.v8s_consinfo.v8s_cons_p1;
+	str2addr = strp->v8s_info.v8s_consinfo.v8s_cons_p2;
+	if ((v8flags & JSSTR_VERBOSE) != 0) {
+		mdb_printf("str %p: cons of %p and %p\n", str1addr, str2addr);
+	}
+
+	str1p = v8string_load(
+	    strp->v8s_info.v8s_consinfo.v8s_cons_p1, strp->v8s_memflags);
+	str2p = v8string_load(
+	    strp->v8s_info.v8s_consinfo.v8s_cons_p2, strp->v8s_memflags);
+
+	if (str1p == NULL || str2p == NULL) {
+		mdbv8_strbuf_sprintf(strb, "<failed to read cons ptrs>");
+	} else {
+		flags = JSSTR_BUMPDEPTH(v8flags);
+		rv = v8string_write(str1p, strb, strflags, flags);
+		if (rv == 0)
+			rv = v8string_write(str2p, strb, strflags, flags);
+	}
+
+	v8string_free(str1p);
+	v8string_free(str2p);
+	return (rv);
 }
 
 static int
 v8string_write_sliced(v8string_t *strp, mdbv8_strbuf_t *strb,
     mdbv8_strappend_flags_t strflags, v8string_flags_t v8flags)
 {
-	/* XXX */
-	v8_warn("not yet supported: sliced strings\n");
-	return (-1);
+	uintptr_t parent, offset, length;
+	v8string_t *pstrp;
+	v8string_flags_t flags;
+	int rv = 0;
+
+	parent = strp->v8s_info.v8s_slicedinfo.v8s_sliced_parent;
+	offset = strp->v8s_info.v8s_slicedinfo.v8s_sliced_offset;
+	length = v8string_length(strp);
+
+	if ((v8flags & JSSTR_VERBOSE) != 0) {
+		mdb_printf("str %p: slice of %p from %d of length %d\n",
+		    strp->v8s_addr, parent, offset, length);
+	}
+
+	pstrp = v8string_load(parent, strp->v8s_memflags);
+	if (pstrp == NULL) {
+		mdbv8_strbuf_sprintf(strb,
+		    "<sliced string (failed to load parent)>");
+		goto out;
+	}
+
+	if (!V8_STRREP_SEQ(pstrp->v8s_type)) {
+		mdbv8_strbuf_sprintf(strb,
+		    "<sliced string (parent is not a sequential string)>");
+		goto out;
+	}
+
+	flags = JSSTR_BUMPDEPTH(v8flags);
+	rv = v8string_write_seq(pstrp, strb, strflags, flags,
+	    offset, length);
+
+out:
+	v8string_free(pstrp);
+	return (rv);
 }
 
 static int
@@ -390,13 +446,13 @@ v8string_write_ext(v8string_t *strp, mdbv8_strbuf_t *strb,
 		if (mdb_vread(buf, ntoread, charsp) == -1) {
 			mdbv8_strbuf_sprintf(strb,
 			    "<failed to read external string data>");
-			return (-1);
+			return (0);
 		}
 
 		if (nread == 0 && buf[0] != '\0' && !isascii(buf[0])) {
 			mdbv8_strbuf_sprintf(strb,
 			    "<found non-ASCII external string data>");
-			return (-1);
+			return (0);
 		}
 
 		nread += ntoread;
