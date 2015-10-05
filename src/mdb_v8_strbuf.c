@@ -63,6 +63,26 @@ mdbv8_strbuf_init(mdbv8_strbuf_t *strb, char *buf, size_t bufsz)
 	mdbv8_strbuf_rewind(strb);
 }
 
+/*
+ * This legacy interface is provided to transition code that passed around
+ * arguments with the same types as "bufp" and "lenp" below.  This code expects
+ * that the pointed-to values will be changed as data is written to the stream.
+ * This allows that code to be transitioned to using this class by using:
+ *
+ *     mdbv8_strbuf_t strbuf;
+ *     mdbv8_strbuf_init(&strbuf, *bufp, *lenp);
+ *
+ *     ... // calls that write strbuf
+ *
+ *     mdbv8_strbuf_legacy_update(&strbuf, bufp, lenp);
+ */
+void
+mdbv8_strbuf_legacy_update(mdbv8_strbuf_t *strb, char **bufp, size_t *lenp)
+{
+	*bufp = strb->ms_curbuf;
+	*lenp = strb->ms_curbufsz;
+}
+
 size_t
 mdbv8_strbuf_bufsz(mdbv8_strbuf_t *strb)
 {

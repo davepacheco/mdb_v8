@@ -80,6 +80,7 @@ typedef enum {
 mdbv8_strbuf_t *mdbv8_strbuf_alloc(size_t, int);
 void mdbv8_strbuf_free(mdbv8_strbuf_t *);
 void mdbv8_strbuf_init(mdbv8_strbuf_t *, char *, size_t);
+void mdbv8_strbuf_legacy_update(mdbv8_strbuf_t *, char **, size_t *);
 
 size_t mdbv8_strbuf_bufsz(mdbv8_strbuf_t *);
 size_t mdbv8_strbuf_bytesleft(mdbv8_strbuf_t *);

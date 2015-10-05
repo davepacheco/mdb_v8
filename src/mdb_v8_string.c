@@ -159,6 +159,9 @@ v8string_write(v8string_t *strp, mdbv8_strbuf_t *strb,
 	/*
 	 * XXX For verbose, need to write obj_jstype() replacement that uses
 	 * mdbv8_strbuf_t.
+	 * XXX also consider whether the verbose stuff should go to the same
+	 * stream
+	 * XXX also consider whether we want to restore the indenting behavior.
 	 */
 	if (JSSTR_DEPTH(v8flags) > JSSTR_MAXDEPTH) {
 		mdbv8_strbuf_sprintf(strb, "<maximum depth exceeded>");
