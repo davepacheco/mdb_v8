@@ -1943,12 +1943,11 @@ obj_print_class(uintptr_t addr, v8_class_t *clp)
 static int
 jsstr_print(uintptr_t addr, uint_t flags, char **bufp, size_t *lenp)
 {
+	mdbv8_strbuf_t strbuf;
 	v8string_t *strp;
 	int rv;
-	mdbv8_strbuf_t strbuf;
 
 	mdbv8_strbuf_init(&strbuf, *bufp, *lenp);
-
 	strp = v8string_load(addr, UM_SLEEP);
 	if (strp == NULL) {
 		return (-1);
@@ -2801,44 +2800,27 @@ jsfunc_lines(uintptr_t scriptp,
  * Given a SharedFunctionInfo object, prints into bufp a name of the function
  * suitable for printing.  This function attempts to infer a name for anonymous
  * functions.
+ *
+ * This is an internal legacy interface.  Callers should use v8funcinfo_load()
+ * and related functions instead.
  */
 static int
 jsfunc_name(uintptr_t funcinfop, char **bufp, size_t *lenp)
 {
-	uintptr_t ptrp;
-	char *bufs = *bufp;
+	mdbv8_strbuf_t strbuf;
+	v8funcinfo_t *fip;
+	int rv;
 
-	if (read_heap_ptr(&ptrp, funcinfop,
-	    V8_OFF_SHAREDFUNCTIONINFO_NAME) != 0) {
-		(void) bsnprintf(bufp, lenp,
-		    "<function (failed to read SharedFunctionInfo)>");
+	mdbv8_strbuf_init(&strbuf, *bufp, *lenp);
+	fip = v8funcinfo_load(funcinfop, UM_SLEEP);
+	if (fip == NULL) {
 		return (-1);
 	}
 
-	if (jsstr_print(ptrp, JSSTR_NUDE, bufp, lenp) != 0)
-		return (-1);
-
-	if (*bufp != bufs)
-		return (0);
-
-	if (read_heap_ptr(&ptrp, funcinfop,
-	    V8_OFF_SHAREDFUNCTIONINFO_INFERRED_NAME) != 0) {
-		(void) bsnprintf(bufp, lenp, "<anonymous>");
-		return (0);
-	}
-
-	(void) bsnprintf(bufp, lenp, "<anonymous> (as ");
-	bufs = *bufp;
-
-	if (jsstr_print(ptrp, JSSTR_NUDE, bufp, lenp) != 0)
-		return (-1);
-
-	if (*bufp == bufs)
-		(void) bsnprintf(bufp, lenp, "<anon>");
-
-	(void) bsnprintf(bufp, lenp, ")");
-
-	return (0);
+	rv = v8funcinfo_funcname(fip, &strbuf, MSF_ASCIIONLY);
+	v8funcinfo_free(fip);
+	mdbv8_strbuf_legacy_update(&strbuf, bufp, lenp);
+	return (rv);
 }
 
 /*

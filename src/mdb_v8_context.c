@@ -91,6 +91,7 @@ struct v8function {
 };
 
 struct v8funcinfo {
+	uintptr_t	v8fi_memflags;		/* allocation flags */
 	uintptr_t	v8fi_script;		/* script object */
 	uintptr_t	v8fi_funcname;		/* function name (string) */
 	uintptr_t	v8fi_inferred_name;	/* inferred func name */
@@ -621,15 +622,19 @@ v8function_free(v8function_t *funcp)
 	maybefree(funcp, sizeof (*funcp), funcp->v8func_memflags);
 }
 
-
 v8funcinfo_t *
 v8function_funcinfo(v8function_t *funcp, int memflags)
 {
+	return (v8funcinfo_load(funcp->v8func_shared, memflags));
+}
+
+v8funcinfo_t *
+v8funcinfo_load(uintptr_t funcinfo, int memflags)
+{
 	v8funcinfo_t *fip;
-	uintptr_t funcinfo, script, name, inferred_name;
+	uintptr_t script, name, inferred_name;
 	uintptr_t scriptpath, lineends, tokenpos;
 
-	funcinfo = funcp->v8func_shared;
 	if (read_heap_maybesmi(&tokenpos, funcinfo,
 	    V8_OFF_SHAREDFUNCTIONINFO_FUNCTION_TOKEN_POSITION) != 0 ||
 	    read_heap_ptr(&name, funcinfo,
@@ -663,25 +668,79 @@ v8function_funcinfo(v8function_t *funcp, int memflags)
 	fip->v8fi_inferred_name = inferred_name;
 	fip->v8fi_scriptpath = scriptpath;
 	fip->v8fi_tokenpos = tokenpos;
+	fip->v8fi_memflags = memflags;
 
 	return (fip);
+}
+
+void
+v8funcinfo_free(v8funcinfo_t *fip)
+{
+	if (fip == NULL) {
+		return;
+	}
+
+	maybefree(fip, sizeof (*fip), fip->v8fi_memflags);
 }
 
 int
 v8funcinfo_funcname(v8funcinfo_t *fip, mdbv8_strbuf_t *strb,
     mdbv8_strappend_flags_t flags)
 {
-	/* XXX want to use inferred name if this is empty */
-	/* XXX want v8string_load(), and what if that fails? */
-	// return (v8string_print(fip->v8fi_funcname, strb, flags));
-	return (-1);
+	v8string_t *strp;
+	int rv;
+
+	/*
+	 * First, try to load the proper function name.  If that works, we're
+	 * done.
+	 */
+	strp = v8string_load(fip->v8fi_funcname, UM_SLEEP);
+	if (strp == NULL) {
+		mdbv8_strbuf_sprintf(strb, "<unknown>");
+	} else if (v8string_length(strp) == 0) {
+		mdbv8_strbuf_sprintf(strb, "<anonymous>");
+		v8string_free(strp);
+	} else {
+		rv = v8string_write(strp, strb, flags, JSSTR_NUDE);
+		v8string_free(strp);
+		return (rv);
+	}
+
+	/*
+	 * If that failed or was empty, then we printed a generic name, but try
+	 * now to append the inferred name.
+	 */
+	if (fip->v8fi_inferred_name != NULL) {
+		strp = v8string_load(fip->v8fi_inferred_name, UM_SLEEP);
+		if (strp != NULL) {
+			mdbv8_strbuf_sprintf(strb, " (as ");
+			if (v8string_length(strp) == 0) {
+				mdbv8_strbuf_sprintf(strb, "<anon>");
+			} else {
+				rv = v8string_write(strp, strb, flags,
+				    JSSTR_NUDE);
+			}
+
+			mdbv8_strbuf_sprintf(strb, ")");
+			v8string_free(strp);
+		}
+	}
+
+	return (rv);
 }
 
 int
 v8funcinfo_scriptpath(v8funcinfo_t *fip, mdbv8_strbuf_t *strb,
     mdbv8_strappend_flags_t flags)
 {
-	/* XXX */
-	return (-1);
-	// return (v8string_print(fip->v8fi_scriptpath, strb, flags));
+	v8string_t *strp;
+	int rv;
+
+	strp = v8string_load(fip->v8fi_scriptpath, UM_SLEEP);
+	if (strp == NULL)
+		return (-1);
+
+	rv = v8string_write(strp, strb, flags, JSSTR_NUDE);
+	v8string_free(strp);
+	return (rv);
 }

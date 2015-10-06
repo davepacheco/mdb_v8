@@ -214,7 +214,12 @@ v8context_t *v8function_context(v8function_t *, int);
 v8scopeinfo_t *v8function_scopeinfo(v8function_t *, int);
 
 typedef struct v8funcinfo v8funcinfo_t;
+v8funcinfo_t *v8funcinfo_load(uintptr_t, int);
 v8funcinfo_t *v8function_funcinfo(v8function_t *, int);
 void v8funcinfo_free(v8funcinfo_t *);
+int v8funcinfo_funcname(v8funcinfo_t *, mdbv8_strbuf_t *,
+    mdbv8_strappend_flags_t);
+int v8funcinfo_scriptpath(v8funcinfo_t *, mdbv8_strbuf_t *,
+    mdbv8_strappend_flags_t);
 
 #endif	/* _MDBV8DBG_H */
