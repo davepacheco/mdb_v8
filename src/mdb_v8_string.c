@@ -21,6 +21,9 @@
 #include <assert.h>
 #include <ctype.h>
 
+#define	JSSTR_DEPTH(f)		((f) & ((1 << JSSTR_FLAGSHIFT) - 1))
+#define	JSSTR_BUMPDEPTH(f)	((f) + 1)
+
 struct v8string {
 	uintptr_t	v8s_addr;
 	size_t		v8s_len;
@@ -144,10 +147,6 @@ v8string_length(v8string_t *strp)
 	return (strp->v8s_len);
 }
 
-/*
- * XXX
- * rewrite jsstr_print() in terms of these functions.
- */
 int
 v8string_write(v8string_t *strp, mdbv8_strbuf_t *strb,
     mdbv8_strappend_flags_t strflags, v8string_flags_t v8flags)

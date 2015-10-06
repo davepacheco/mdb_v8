@@ -112,13 +112,6 @@ typedef enum {
 	JSSTR_MAXDEPTH  = 512
 } v8string_flags_t;
 
-/*
- * XXX These definitions should move into mdb_v8_string.c when references in
- * mdb_v8.c are removed.
- */
-#define	JSSTR_DEPTH(f)		((f) & ((1 << JSSTR_FLAGSHIFT) - 1))
-#define	JSSTR_BUMPDEPTH(f)	((f) + 1)
-
 v8string_t *v8string_load(uintptr_t, int);
 void v8string_free(v8string_t *);
 
