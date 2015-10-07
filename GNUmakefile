@@ -49,7 +49,7 @@ MDBV8_VERS_TAG	 = "dev"
 MDBV8_SOURCES		 = \
     mdb_v8.c \
     mdb_v8_cfg.c \
-    mdb_v8_context.c \
+    mdb_v8_function.c \
     mdb_v8_strbuf.c \
     mdb_v8_string.c \
     mdb_v8_subr.c

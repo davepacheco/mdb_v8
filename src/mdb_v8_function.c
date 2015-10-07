@@ -9,8 +9,9 @@
  */
 
 /*
- * mdb_v8_context.c: implementations of functions used for working with Contexts
- * and ScopeInfos.  See mdb_v8_dbg.h for details.
+ * mdb_v8_function.c: implementations of functions used for working with
+ * JSFunctions and related objects, including Context, ScopeInfo, and Code
+ * objects.  See mdb_v8_dbg.h for details.
  */
 
 #include <assert.h>
