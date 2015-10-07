@@ -56,6 +56,10 @@ static int v8string_write_ext(v8string_t *, mdbv8_strbuf_t *,
 static int v8string_write_sliced(v8string_t *, mdbv8_strbuf_t *,
     mdbv8_strappend_flags_t, v8string_flags_t);
 
+/*
+ * Loads a V8 String object.
+ * See the patterns in mdb_v8_dbg.h for interface details.
+ */
 v8string_t *
 v8string_load(uintptr_t addr, int memflags)
 {
@@ -131,6 +135,10 @@ fail:
 	return (NULL);
 }
 
+/*
+ * Frees a V8 String object.
+ * See the patterns in mdb_v8_dbg.h for interface details.
+ */
 void
 v8string_free(v8string_t *strp)
 {
@@ -141,12 +149,27 @@ v8string_free(v8string_t *strp)
 	maybefree(strp, sizeof (*strp), strp->v8s_memflags);
 }
 
+/*
+ * Returns the length (in characters) of a V8 string.  This may differ from the
+ * number of bytes used to represent it (in the case of two-byte strings), as
+ * well as the number of bytes used when writing it to a string buffer (since
+ * with some flags, some characters may be escaped).
+ */
 size_t
 v8string_length(v8string_t *strp)
 {
 	return (strp->v8s_len);
 }
 
+/*
+ * Write the contents of the JavaScript string "strp" into the string buffer
+ * "strb".  "strflags" allows the caller to specify properties related to the
+ * string buffer (e.g., that non-ASCII characters should be sanitized, or that
+ * the string is being written as JSON and certain characters should be
+ * escaped).  "v8flags" allows the caller to specify properties related to the
+ * V8 String itself, like whether it should be quoted, or verbose details should
+ * be printed.
+ */
 int
 v8string_write(v8string_t *strp, mdbv8_strbuf_t *strb,
     mdbv8_strappend_flags_t strflags, v8string_flags_t v8flags)
@@ -201,6 +224,10 @@ v8string_write(v8string_t *strp, mdbv8_strbuf_t *strb,
 	return (err);
 }
 
+/*
+ * Implementation of v8string_write() for sequential strings.  "usliceoffset"
+ * and "uslicelen" denote the a range of characters in the string to write.
+ */
 static int
 v8string_write_seq(v8string_t *strp, mdbv8_strbuf_t *strb,
     mdbv8_strappend_flags_t strflags, v8string_flags_t v8flags,
@@ -341,6 +368,9 @@ v8string_write_seq(v8string_t *strp, mdbv8_strbuf_t *strb,
 	return (0);
 }
 
+/*
+ * Implementation of v8string_write() for ConsStrings.
+ */
 static int
 v8string_write_cons(v8string_t *strp, mdbv8_strbuf_t *strb,
     mdbv8_strappend_flags_t strflags, v8string_flags_t v8flags)
@@ -375,6 +405,9 @@ v8string_write_cons(v8string_t *strp, mdbv8_strbuf_t *strb,
 	return (rv);
 }
 
+/*
+ * Implementation of v8string_write() for SlicedStrings.
+ */
 static int
 v8string_write_sliced(v8string_t *strp, mdbv8_strbuf_t *strb,
     mdbv8_strappend_flags_t strflags, v8string_flags_t v8flags)
@@ -415,6 +448,10 @@ out:
 	return (rv);
 }
 
+/*
+ * Implementation of v8string_write() for ExternalStrings.  This implementation
+ * assumes that all external strings are Node strings.
+ */
 static int
 v8string_write_ext(v8string_t *strp, mdbv8_strbuf_t *strb,
     mdbv8_strappend_flags_t strflags, v8string_flags_t v8flags)

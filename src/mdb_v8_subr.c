@@ -10,7 +10,6 @@
 
 /*
  * mdb_v8_subr.c: utility functions used internally within mdb_v8.
- * XXX document these functions.
  */
 
 #include <assert.h>
@@ -26,6 +25,10 @@ struct v8fixedarray {
 	uintptr_t	*v8fa_elts;
 };
 
+/*
+ * Load a V8 FixedArray object.
+ * See the patterns in mdb_v8_dbg.h for interface details.
+ */
 v8fixedarray_t *
 v8fixedarray_load(uintptr_t addr, int memflags)
 {
@@ -65,6 +68,10 @@ v8fixedarray_load(uintptr_t addr, int memflags)
 	return (arrayp);
 }
 
+/*
+ * Free a V8 FixedArray object.
+ * See the patterns in mdb_v8_dbg.h for interface details.
+ */
 void
 v8fixedarray_free(v8fixedarray_t *arrayp)
 {
@@ -78,12 +85,19 @@ v8fixedarray_free(v8fixedarray_t *arrayp)
 	maybefree(arrayp, sizeof (*arrayp), arrayp->v8fa_memflags);
 }
 
+/*
+ * Return a native array representing the contents of the FixedArray "arrayp".
+ * The length of the array is given by v8fixedarray_length().
+ */
 uintptr_t *
 v8fixedarray_elts(v8fixedarray_t *arrayp)
 {
 	return (arrayp->v8fa_elts);
 }
 
+/*
+ * Returns the number of elements in the FixedArray "arrayp".
+ */
 size_t
 v8fixedarray_length(v8fixedarray_t *arrayp)
 {
