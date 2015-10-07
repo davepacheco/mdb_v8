@@ -1397,6 +1397,8 @@ read_heap_double(double *valp, uintptr_t addr, ssize_t off)
 /*
  * Assuming "addr" refers to a FixedArray, return a newly-allocated array
  * representing its contents.
+ *
+ * TODO This function is deprecated.  See v8fixedarray_load().
  */
 int
 read_heap_array(uintptr_t addr, uintptr_t **retp, size_t *lenp, int flags)
@@ -5753,24 +5755,21 @@ dcmd_v8field(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 static int
 dcmd_v8array(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 {
-	uint8_t type;
-	uintptr_t *array;
-	size_t ii, len;
+	v8fixedarray_t *arrayp;
+	uintptr_t *elts;
+	size_t i, len;
 
-	if (read_typebyte(&type, addr) != 0)
-		return (DCMD_ERR);
-
-	if (type != V8_TYPE_FIXEDARRAY) {
-		mdb_warn("%p is not an instance of FixedArray\n", addr);
+	if ((arrayp = v8fixedarray_load(addr, UM_SLEEP | UM_GC)) == NULL) {
 		return (DCMD_ERR);
 	}
 
-	if (read_heap_array(addr, &array, &len, UM_SLEEP | UM_GC) != 0)
-		return (DCMD_ERR);
+	elts = v8fixedarray_elts(arrayp);
+	len = v8fixedarray_length(arrayp);
 
-	for (ii = 0; ii < len; ii++)
-		mdb_printf("%p\n", array[ii]);
+	for (i = 0; i < len; i++)
+		mdb_printf("%p\n", elts[i]);
 
+	v8fixedarray_free(arrayp);
 	return (DCMD_OK);
 }
 

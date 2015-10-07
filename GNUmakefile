@@ -51,7 +51,8 @@ MDBV8_SOURCES		 = \
     mdb_v8_cfg.c \
     mdb_v8_context.c \
     mdb_v8_strbuf.c \
-    mdb_v8_string.c
+    mdb_v8_string.c \
+    mdb_v8_subr.c
 
 MDBV8_GENSOURCES	 = mdb_v8_version.c
 

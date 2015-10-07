@@ -234,4 +234,18 @@ uintptr_t v8code_addr(v8code_t *);
 uintptr_t v8code_instructions_start(v8code_t *);
 uintptr_t v8code_instructions_size(v8code_t *);
 
+/*
+ * V8FixedArray structures are just plain arrays used within V8 for a variety of
+ * higher-level structures.  Most of these apply their own semantics to the
+ * elements of the array.  Contexts and ScopeInfos are examples of higher-level
+ * objects that are just FixedArrays with additional semantics.
+ */
+typedef struct v8fixedarray v8fixedarray_t;
+
+v8fixedarray_t *v8fixedarray_load(uintptr_t, int);
+void v8fixedarray_free(v8fixedarray_t *);
+
+uintptr_t *v8fixedarray_elts(v8fixedarray_t *);
+size_t v8fixedarray_length(v8fixedarray_t *);
+
 #endif	/* _MDBV8DBG_H */

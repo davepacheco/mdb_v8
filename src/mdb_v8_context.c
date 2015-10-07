@@ -769,8 +769,9 @@ int
 v8funcinfo_definition_location(v8funcinfo_t *fip, mdbv8_strbuf_t *strb,
     mdbv8_strappend_flags_t flags)
 {
-	uintptr_t tokpos, size, lower, upper, i;
+	uintptr_t tokpos, lower, upper, i;
 	uintptr_t *data;
+	v8fixedarray_t *arrayp;
 
 	/*
 	 * The "function" token position is an SMI, and has already been decoded
@@ -803,14 +804,14 @@ v8funcinfo_definition_location(v8funcinfo_t *fip, mdbv8_strbuf_t *strb,
 		return (0);
 	}
 
-	/* XXX abstract heap arrays */
-	if (read_heap_array(fip->v8fi_line_endings, &data, &size,
-	    UM_NOSLEEP) == -1) {
+	arrayp = v8fixedarray_load(fip->v8fi_line_endings, UM_NOSLEEP);
+	if (arrayp == NULL) {
 		return (-1);
 	}
 
+	data = v8fixedarray_elts(arrayp);
 	lower = 0;
-	upper = size - 1;
+	upper = v8fixedarray_length(arrayp) - 1;
 	if (tokpos > data[upper]) {
 		mdbv8_strbuf_sprintf(strb, "position out of range");
 	} else if (tokpos <= data[0]) {
@@ -829,8 +830,7 @@ v8funcinfo_definition_location(v8funcinfo_t *fip, mdbv8_strbuf_t *strb,
 		mdbv8_strbuf_sprintf(strb, "line %d", i + 1);
 	}
 
-	/* XXX abstract heap arrays */
-	mdb_free(data, size * sizeof (data[0]));
+	v8fixedarray_free(arrayp);
 	return (0);
 }
 
