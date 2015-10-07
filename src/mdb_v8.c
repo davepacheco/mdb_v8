@@ -1214,7 +1214,6 @@ conf_class_compute_offsets(v8_class_t *clp)
  */
 
 static int jsstr_print(uintptr_t, uint_t, char **, size_t *);
-static boolean_t jsobj_is_undefined(uintptr_t addr);
 static boolean_t jsobj_is_hole(uintptr_t addr);
 static boolean_t jsobj_maybe_garbage(uintptr_t addr);
 
@@ -1995,7 +1994,7 @@ jsobj_is_oddball(uintptr_t addr, char *oddball)
 	return (strcmp(buf, oddball) == 0);
 }
 
-static boolean_t
+boolean_t
 jsobj_is_undefined(uintptr_t addr)
 {
 	return (jsobj_is_oddball(addr, "undefined"));
@@ -3329,22 +3328,21 @@ dcmd_v8classes(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 }
 
 static int
-do_v8code(uintptr_t addr, boolean_t opt_d)
+do_v8code(v8code_t *codep, boolean_t opt_d)
 {
-	uintptr_t instrlen;
-	ssize_t instroff = V8_OFF_CODE_INSTRUCTION_START;
+	uintptr_t instrstart, instrsize;
 
-	if (read_heap_ptr(&instrlen, addr, V8_OFF_CODE_INSTRUCTION_SIZE) != 0)
-		return (DCMD_ERR);
+	instrstart = v8code_instructions_start(codep);
+	instrsize = v8code_instructions_size(codep);
 
-	mdb_printf("code: %p\n", addr);
-	mdb_printf("instructions: [%p, %p)\n", addr + instroff,
-	    addr + instroff + instrlen);
+	mdb_printf("code: %p\n", v8code_addr(codep));
+	mdb_printf("instructions: [%p, %p)\n", instrstart,
+	    instrstart + instrsize);
 
 	if (!opt_d)
 		return (DCMD_OK);
 
-	mdb_set_dot(addr + instroff);
+	mdb_set_dot(instrstart);
 
 	do {
 		(void) mdb_inc_indent(8); /* gets reset by mdb_eval() */
@@ -3364,7 +3362,7 @@ do_v8code(uintptr_t addr, boolean_t opt_d)
 			v8_warn("failed to disassemble at %p", mdb_get_dot());
 			return (DCMD_ERR);
 		}
-	} while (mdb_get_dot() < addr + instroff + instrlen);
+	} while (mdb_get_dot() < instrstart + instrsize);
 
 	(void) mdb_dec_indent(8);
 	return (DCMD_OK);
@@ -3375,25 +3373,31 @@ static int
 dcmd_v8code(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 {
 	boolean_t opt_d = B_FALSE;
+	v8code_t *codep;
+	int rv;
 
 	if (mdb_getopts(argc, argv, 'd', MDB_OPT_SETBITS, B_TRUE, &opt_d,
 	    NULL) != argc)
 		return (DCMD_USAGE);
 
-	return (do_v8code(addr, opt_d));
+	codep = v8code_load(addr, UM_NOSLEEP | UM_GC);
+	rv = do_v8code(codep, opt_d);
+	v8code_free(codep);
+	return (rv);
 }
 
 /* ARGSUSED */
 static int
 dcmd_v8function(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 {
-	uint8_t type;
-	uintptr_t funcinfop, scriptp, lendsp, tokpos, namep, codep;
-	uintptr_t contextp, scopeinfop;
-	char *bufp;
-	size_t len;
 	boolean_t opt_d = B_FALSE;
-	char buf[512];
+	v8function_t *fp = NULL;
+	v8context_t *ctxp = NULL;
+	v8scopeinfo_t *sip = NULL;
+	v8funcinfo_t *fip = NULL;
+	v8code_t *codep = NULL;
+	mdbv8_strbuf_t *strb = NULL;
+	int rv = DCMD_ERR;
 
 	if (mdb_getopts(argc, argv, 'd', MDB_OPT_SETBITS, B_TRUE, &opt_d,
 	    NULL) != argc)
@@ -3401,76 +3405,43 @@ dcmd_v8function(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 
 	v8_warnings++;
 
-	if (read_typebyte(&type, addr) != 0)
-		goto err;
-
-	if (strcmp(enum_lookup_str(v8_types, type, ""), "JSFunction") != 0) {
-		v8_warn("%p is not an instance of JSFunction\n", addr);
-		goto err;
+	if ((fp = v8function_load(addr, UM_NOSLEEP)) == NULL ||
+	    (ctxp = v8function_context(fp, UM_NOSLEEP)) == NULL ||
+	    (fip = v8function_funcinfo(fp, UM_NOSLEEP)) == NULL ||
+	    (codep = v8funcinfo_code(fip, UM_NOSLEEP)) == NULL ||
+	    (strb = mdbv8_strbuf_alloc(512, UM_NOSLEEP)) == NULL) {
+		goto out;
 	}
 
-	if (read_heap_ptr(&funcinfop, addr, V8_OFF_JSFUNCTION_SHARED) != 0 ||
-	    read_heap_maybesmi(&tokpos, funcinfop,
-	    V8_OFF_SHAREDFUNCTIONINFO_FUNCTION_TOKEN_POSITION) != 0 ||
-	    read_heap_ptr(&scriptp, funcinfop,
-	    V8_OFF_SHAREDFUNCTIONINFO_SCRIPT) != 0 ||
-	    read_heap_ptr(&namep, scriptp, V8_OFF_SCRIPT_NAME) != 0 ||
-	    read_heap_ptr(&lendsp, scriptp, V8_OFF_SCRIPT_LINE_ENDS) != 0)
-		goto err;
+	mdbv8_strbuf_sprintf(strb, "%p: JSFunction: ", addr);
+	(void) v8funcinfo_funcname(fip, strb, MSF_ASCIIONLY);
+	mdbv8_strbuf_sprintf(strb, "\n");
 
+	mdbv8_strbuf_sprintf(strb, "defined at ");
+	(void) v8funcinfo_scriptpath(fip, strb, MSF_ASCIIONLY);
+	mdbv8_strbuf_sprintf(strb, " ");
+	(void) v8funcinfo_definition_location(fip, strb, MSF_ASCIIONLY);
+	mdb_printf("%s\n", mdbv8_strbuf_tocstr(strb));
 
-	if (read_heap_ptr(&contextp, addr, V8_OFF_JSFUNCTION_CONTEXT) != 0)
-		goto err;
-
-	/*
-	 * The token position is normally a SMI, so read_heap_maybesmi() will
-	 * interpret the value for us.  However, this code uses its SMI-encoded
-	 * value, so convert it back here.
-	 */
-	tokpos = V8_VALUE_SMI(tokpos);
-
-	bufp = buf;
-	len = sizeof (buf);
-	if (jsfunc_name(funcinfop, &bufp, &len) != 0)
-		goto err;
-
-	mdb_printf("%p: JSFunction: %s\n", addr, buf);
-
-	bufp = buf;
-	len = sizeof (buf);
-	mdb_printf("defined at ");
-
-	if (jsstr_print(namep, JSSTR_NUDE, &bufp, &len) == 0)
-		mdb_printf("%s ", buf);
-
-	if (jsfunc_lineno(lendsp, tokpos, buf, sizeof (buf), NULL) == 0)
-		mdb_printf("%s", buf);
-
-	mdb_printf("\n");
-
-	mdb_printf("context: %p\n", contextp);
-	if (V8_OFF_SHAREDFUNCTIONINFO_SCOPE_INFO != -1) {
-		if (read_heap_ptr(&scopeinfop, funcinfop,
-		    V8_OFF_SHAREDFUNCTIONINFO_SCOPE_INFO) != 0) {
-			goto err;
-		}
-
-		mdb_printf("shared scope_info: %p\n", scopeinfop);
-	} else {
+	mdb_printf("context: %p\n", v8context_addr(ctxp));
+	sip = v8function_scopeinfo(fp, UM_NOSLEEP);
+	if (sip == NULL) {
 		mdb_printf("shared scope_info not available\n");
+	} else {
+		mdb_printf("shared scope_info: %p\n", v8scopeinfo_addr(sip));
 	}
 
-	if (read_heap_ptr(&codep,
-	    funcinfop, V8_OFF_SHAREDFUNCTIONINFO_CODE) != 0)
-		goto err;
+	rv = do_v8code(codep, opt_d);
 
+out:
+	v8code_free(codep);
+	v8funcinfo_free(fip);
+	v8scopeinfo_free(sip);
+	v8context_free(ctxp);
+	v8function_free(fp);
+	mdbv8_strbuf_free(strb);
 	v8_warnings--;
-
-	return (do_v8code(codep, opt_d));
-
-err:
-	v8_warnings--;
-	return (DCMD_ERR);
+	return (rv);
 }
 
 /*

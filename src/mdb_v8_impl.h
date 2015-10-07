@@ -45,6 +45,7 @@ int read_heap_ptr(uintptr_t *, uintptr_t, ssize_t);
 int read_heap_smi(uintptr_t *, uintptr_t, ssize_t);
 int read_typebyte(uint8_t *, uintptr_t);
 void v8_warn(const char *, ...);
+boolean_t jsobj_is_undefined(uintptr_t);
 
 /*
  * We need to find a better way of exposing this information.  For now, these
@@ -65,18 +66,21 @@ extern intptr_t V8_ConsStringTag;
 extern intptr_t V8_SlicedStringTag;
 extern intptr_t V8_ExternalStringTag;
 
+extern ssize_t V8_OFF_CODE_INSTRUCTION_SIZE;
+extern ssize_t V8_OFF_CODE_INSTRUCTION_START;
 extern ssize_t V8_OFF_CONSSTRING_FIRST;
 extern ssize_t V8_OFF_CONSSTRING_SECOND;
 extern ssize_t V8_OFF_EXTERNALSTRING_RESOURCE;
 extern ssize_t V8_OFF_JSFUNCTION_CONTEXT;
 extern ssize_t V8_OFF_JSFUNCTION_SHARED;
+extern ssize_t V8_OFF_SCRIPT_LINE_ENDS;
+extern ssize_t V8_OFF_SCRIPT_NAME;
 extern ssize_t V8_OFF_SEQASCIISTR_CHARS;
 extern ssize_t V8_OFF_SEQONEBYTESTR_CHARS;
 extern ssize_t V8_OFF_SEQTWOBYTESTR_CHARS;
+extern ssize_t V8_OFF_SHAREDFUNCTIONINFO_CODE;
 extern ssize_t V8_OFF_SHAREDFUNCTIONINFO_SCOPE_INFO;
 extern ssize_t V8_OFF_SHAREDFUNCTIONINFO_INFERRED_NAME;
-extern ssize_t V8_OFF_SCRIPT_LINE_ENDS;
-extern ssize_t V8_OFF_SCRIPT_NAME;
 extern ssize_t V8_OFF_SHAREDFUNCTIONINFO_FUNCTION_TOKEN_POSITION;
 extern ssize_t V8_OFF_SHAREDFUNCTIONINFO_NAME;
 extern ssize_t V8_OFF_SHAREDFUNCTIONINFO_SCRIPT;

@@ -166,6 +166,7 @@ int v8string_write(v8string_t *, mdbv8_strbuf_t *,
 
 v8context_t *v8context_load(uintptr_t, int);
 void v8context_free(v8context_t *);
+uintptr_t v8context_addr(v8context_t *);
 uintptr_t v8context_closure(v8context_t *);
 uintptr_t v8context_prev_context(v8context_t *);
 int v8context_var_value(v8context_t *, unsigned int, uintptr_t *);
@@ -180,6 +181,7 @@ int v8context_iter_dynamic_slots(v8context_t *,
  */
 v8scopeinfo_t *v8scopeinfo_load(uintptr_t, int);
 void v8scopeinfo_free(v8scopeinfo_t *);
+uintptr_t v8scopeinfo_addr(v8scopeinfo_t *);
 v8scopeinfo_t *v8context_scopeinfo(v8context_t *, int);
 
 int v8scopeinfo_iter_vartypes(v8scopeinfo_t *,
@@ -214,5 +216,22 @@ int v8funcinfo_funcname(v8funcinfo_t *, mdbv8_strbuf_t *,
     mdbv8_strappend_flags_t);
 int v8funcinfo_scriptpath(v8funcinfo_t *, mdbv8_strbuf_t *,
     mdbv8_strappend_flags_t);
+int v8funcinfo_definition_location(v8funcinfo_t *, mdbv8_strbuf_t *,
+    mdbv8_strappend_flags_t);
+
+/*
+ * V8Code objects represent blocks of native instructions.  We wouldn't bother
+ * to abstract this separately from v8funcinfo_t, except that there are code
+ * blocks that aren't part of a function (e.g., various trampolines) that it's
+ * sometimes useful to inspect.
+ */
+typedef struct v8code v8code_t;
+
+v8code_t *v8code_load(uintptr_t, int);
+v8code_t *v8funcinfo_code(v8funcinfo_t *, int);
+void v8code_free(v8code_t *);
+uintptr_t v8code_addr(v8code_t *);
+uintptr_t v8code_instructions_start(v8code_t *);
+uintptr_t v8code_instructions_size(v8code_t *);
 
 #endif	/* _MDBV8DBG_H */

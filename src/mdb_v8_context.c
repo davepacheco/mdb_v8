@@ -91,12 +91,21 @@ struct v8function {
 };
 
 struct v8funcinfo {
-	uintptr_t	v8fi_memflags;		/* allocation flags */
+	int		v8fi_memflags;		/* allocation flags */
 	uintptr_t	v8fi_script;		/* script object */
 	uintptr_t	v8fi_funcname;		/* function name (string) */
 	uintptr_t	v8fi_inferred_name;	/* inferred func name */
 	uintptr_t	v8fi_scriptpath;	/* script file name (string) */
 	uintptr_t	v8fi_tokenpos;		/* "function" token position */
+	uintptr_t	v8fi_line_endings;	/* script line endings table */
+	uintptr_t	v8fi_code;		/* "code" object */
+};
+
+struct v8code {
+	uintptr_t	v8code_addr;		/* address in target proc */
+	int		v8code_memflags;	/* allocation flags */
+	uintptr_t	v8code_instr_start;	/* start of instructions */
+	uintptr_t	v8code_instr_size;	/* size of instructions */
 };
 
 /*
@@ -155,6 +164,12 @@ v8context_free(v8context_t *ctxp)
 	    ctxp->v8ctx_nelts * sizeof (ctxp->v8ctx_elts[0]),
 	    ctxp->v8ctx_memflags);
 	maybefree(ctxp, sizeof (*ctxp), ctxp->v8ctx_memflags);
+}
+
+uintptr_t
+v8context_addr(v8context_t *ctxp)
+{
+	return (ctxp->v8ctx_addr);
 }
 
 /*
@@ -345,6 +360,12 @@ v8scopeinfo_free(v8scopeinfo_t *sip)
 	maybefree(sip->v8si_elts,
 	    sip->v8si_nelts * sizeof (sip->v8si_elts[0]), sip->v8si_memflags);
 	maybefree(sip, sizeof (*sip), sip->v8si_memflags);
+}
+
+uintptr_t
+v8scopeinfo_addr(v8scopeinfo_t *sip)
+{
+	return (sip->v8si_addr);
 }
 
 /*
@@ -616,6 +637,9 @@ v8function_scopeinfo(v8function_t *funcp, int memflags)
 	return (v8scopeinfo_load(scopeinfo, memflags));
 }
 
+/*
+ * XXX document these functions
+ */
 void
 v8function_free(v8function_t *funcp)
 {
@@ -632,7 +656,7 @@ v8funcinfo_t *
 v8funcinfo_load(uintptr_t funcinfo, int memflags)
 {
 	v8funcinfo_t *fip;
-	uintptr_t script, name, inferred_name;
+	uintptr_t script, name, inferred_name, code;
 	uintptr_t scriptpath, lineends, tokenpos;
 
 	if (read_heap_maybesmi(&tokenpos, funcinfo,
@@ -642,7 +666,9 @@ v8funcinfo_load(uintptr_t funcinfo, int memflags)
 	    read_heap_ptr(&script, funcinfo,
 	    V8_OFF_SHAREDFUNCTIONINFO_SCRIPT) != 0 ||
 	    read_heap_ptr(&scriptpath, script, V8_OFF_SCRIPT_NAME) != 0 ||
-	    read_heap_ptr(&lineends, script, V8_OFF_SCRIPT_LINE_ENDS) != 0) {
+	    read_heap_ptr(&lineends, script, V8_OFF_SCRIPT_LINE_ENDS) != 0 ||
+	    read_heap_ptr(&code, funcinfo,
+	    V8_OFF_SHAREDFUNCTIONINFO_CODE) != 0) {
 		return (NULL);
 	}
 
@@ -651,25 +677,19 @@ v8funcinfo_load(uintptr_t funcinfo, int memflags)
 		inferred_name = 0;
 	}
 
-	/*
-	 * The token position is normally a SMI, so read_heap_maybesmi() will
-	 * interpret the value for us.  However, this code uses its SMI-encoded
-	 * value, so convert it back here.
-	 */
-	tokenpos = V8_VALUE_SMI(tokenpos);
-
 	fip = mdb_zalloc(sizeof (*fip), memflags);
 	if (fip == NULL) {
 		return (NULL);
 	}
 
-	fip->v8fi_script = script;
+	fip->v8fi_memflags = memflags;
 	fip->v8fi_funcname = name;
 	fip->v8fi_inferred_name = inferred_name;
+	fip->v8fi_script = script;
 	fip->v8fi_scriptpath = scriptpath;
 	fip->v8fi_tokenpos = tokenpos;
-	fip->v8fi_memflags = memflags;
-
+	fip->v8fi_line_endings = jsobj_is_undefined(lineends) ? NULL : lineends;
+	fip->v8fi_code = code;
 	return (fip);
 }
 
@@ -743,4 +763,129 @@ v8funcinfo_scriptpath(v8funcinfo_t *fip, mdbv8_strbuf_t *strb,
 	rv = v8string_write(strp, strb, flags, JSSTR_NUDE);
 	v8string_free(strp);
 	return (rv);
+}
+
+int
+v8funcinfo_definition_location(v8funcinfo_t *fip, mdbv8_strbuf_t *strb,
+    mdbv8_strappend_flags_t flags)
+{
+	uintptr_t tokpos, size, lower, upper, i;
+	uintptr_t *data;
+
+	/*
+	 * The "function" token position is an SMI, and has already been decoded
+	 * at this point.  For both the -1 check and the binary search
+	 * algorithm below, it's easier to compare this to other SMI-encoded
+	 * values, so we re-encode the token position.
+	 */
+	tokpos = V8_VALUE_SMI(fip->v8fi_tokenpos);
+
+	/*
+	 * V8 maintains a table of line endings for each script, but it's lazily
+	 * initialized.  If it's there, then we'll use that to map the
+	 * function's token position to a line number.  Otherwise, we'll just
+	 * print out the position itself (which is basically a character offset
+	 * into the script).
+	 */
+	if (fip->v8fi_line_endings == NULL) {
+		if (tokpos == V8_VALUE_SMI(-1)) {
+			mdbv8_strbuf_sprintf(strb, "unknown position");
+		} else {
+			/*
+			 * If we're printing out the actual position value
+			 * (because we didn't find line number information),
+			 * then use the decoded value again.
+			 */
+			mdbv8_strbuf_sprintf(strb, "position %d",
+			    fip->v8fi_tokenpos);
+		}
+
+		return (0);
+	}
+
+	/* XXX abstract heap arrays */
+	if (read_heap_array(fip->v8fi_line_endings, &data, &size,
+	    UM_NOSLEEP) == -1) {
+		return (-1);
+	}
+
+	lower = 0;
+	upper = size - 1;
+	if (tokpos > data[upper]) {
+		mdbv8_strbuf_sprintf(strb, "position out of range");
+	} else if (tokpos <= data[0]) {
+		mdbv8_strbuf_sprintf(strb, "line 1");
+	} else {
+		while (upper >= 1) {
+			i = (lower + upper) >> 1;
+			if (tokpos > data[i])
+				lower = i + 1;
+			else if (tokpos <= data[i - 1])
+				upper = i - 1;
+			else
+				break;
+		}
+
+		mdbv8_strbuf_sprintf(strb, "line %d", i + 1);
+	}
+
+	/* XXX abstract heap arrays */
+	mdb_free(data, size * sizeof (data[0]));
+	return (0);
+}
+
+v8code_t *
+v8funcinfo_code(v8funcinfo_t *fip, int memflags)
+{
+	return (v8code_load(fip->v8fi_code, memflags));
+}
+
+v8code_t *
+v8code_load(uintptr_t code, int memflags)
+{
+	uintptr_t start, size;
+	v8code_t *codep;
+
+	start = code + V8_OFF_CODE_INSTRUCTION_START;
+	if (read_heap_ptr(&size, code, V8_OFF_CODE_INSTRUCTION_SIZE) != 0) {
+		return (NULL);
+	}
+
+	if ((codep = mdb_zalloc(sizeof (*codep), memflags)) == NULL) {
+		return (NULL);
+	}
+
+	codep->v8code_addr = code;
+	codep->v8code_memflags = memflags;
+	codep->v8code_instr_start = start;
+	codep->v8code_instr_size = size;
+	return (codep);
+}
+
+void
+v8code_free(v8code_t *codep)
+{
+	if (codep == NULL) {
+		return;
+	}
+
+	maybefree(codep, sizeof (*codep), codep->v8code_memflags);
+}
+
+uintptr_t
+v8code_addr(v8code_t *codep)
+{
+	return (codep->v8code_addr);
+}
+
+uintptr_t
+v8code_instructions_start(v8code_t *codep)
+{
+	return (codep->v8code_instr_start);
+}
+
+uintptr_t
+v8code_instructions_size(v8code_t *codep)
+{
+	return (codep->v8code_instr_size);
 }
