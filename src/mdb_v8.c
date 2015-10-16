@@ -3383,6 +3383,10 @@ dcmd_v8code(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 		return (DCMD_USAGE);
 
 	codep = v8code_load(addr, UM_NOSLEEP | UM_GC);
+	if (codep == NULL) {
+		return (DCMD_ERR);
+	}
+
 	rv = do_v8code(codep, opt_d);
 	v8code_free(codep);
 	return (rv);
