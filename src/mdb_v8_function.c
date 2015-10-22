@@ -169,6 +169,10 @@ v8function_load(uintptr_t addr, int memflags)
 void
 v8function_free(v8function_t *funcp)
 {
+	if (funcp == NULL) {
+		return;
+	}
+
 	maybefree(funcp, sizeof (*funcp), funcp->v8func_memflags);
 }
 

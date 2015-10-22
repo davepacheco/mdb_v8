@@ -151,6 +151,8 @@ void mdbv8_strbuf_sprintf(mdbv8_strbuf_t *, const char *, ...);
 void mdbv8_strbuf_vsprintf(mdbv8_strbuf_t *, const char *, va_list);
 const char *mdbv8_strbuf_tocstr(mdbv8_strbuf_t *);
 
+size_t mdbv8_strbuf_nbytesforchar(uint16_t, mdbv8_strappend_flags_t);
+
 
 /*
  * Working with V8 FixedArrays.  These are plain arrays used within V8 for a

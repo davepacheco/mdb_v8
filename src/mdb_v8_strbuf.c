@@ -122,6 +122,9 @@ mdbv8_strbuf_appendc(mdbv8_strbuf_t *strb, uint16_t c,
 
 	if ((flags & MSF_JSON) == MSF_JSON) {
 		/* XXX validate this with JSON spec */
+		/*
+		 * This must be kept in sync with mdbv8_strbuf_nbytesforchar().
+		 */
 		switch (c) {
 		case '\b':
 			mdbv8_strbuf_sprintf(strb, "\\b");
@@ -153,6 +156,29 @@ mdbv8_strbuf_appendc(mdbv8_strbuf_t *strb, uint16_t c,
 	}
 
 	mdbv8_strbuf_sprintf(strb, "%c", c);
+}
+
+size_t
+mdbv8_strbuf_nbytesforchar(uint16_t c, mdbv8_strappend_flags_t flags)
+{
+	if ((flags & MSF_JSON) == MSF_JSON) {
+		/*
+		 * This must be kept in sync with mdbv8_strbuf_appendc().
+		 */
+		switch (c) {
+		case '\b':
+		case '\n':
+		case '\r':
+		case '\\':
+		case '"':
+			return (2);
+
+		default:
+			break;
+		}
+	}
+
+	return (1);
 }
 
 void

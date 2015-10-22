@@ -1951,11 +1951,14 @@ jsstr_print(uintptr_t addr, uint_t flags, char **bufp, size_t *lenp)
 	mdbv8_strbuf_init(&strbuf, *bufp, *lenp);
 	strp = v8string_load(addr, UM_SLEEP);
 	if (strp == NULL) {
-		return (-1);
+		mdbv8_strbuf_appends(&strbuf,
+		    "<string (failed to load string)>", flags);
+		rv = -1;
+	} else {
+		rv = v8string_write(strp, &strbuf, MSF_ASCIIONLY, flags);
+		v8string_free(strp);
 	}
 
-	rv = v8string_write(strp, &strbuf, MSF_ASCIIONLY, flags);
-	v8string_free(strp);
 	mdbv8_strbuf_legacy_update(&strbuf, bufp, lenp);
 	return (rv);
 }

@@ -56,6 +56,9 @@ static int v8string_write_ext(v8string_t *, mdbv8_strbuf_t *,
 static int v8string_write_sliced(v8string_t *, mdbv8_strbuf_t *,
     mdbv8_strappend_flags_t, v8string_flags_t);
 
+static const char *v8s_truncate_marker = "[...]";
+static size_t v8s_truncate_marker_bytes = sizeof ("[...]") - 1;
+
 /*
  * Loads a V8 String object.
  * See the patterns in mdb_v8_dbg.h for interface details.
@@ -225,6 +228,50 @@ v8string_write(v8string_t *strp, mdbv8_strbuf_t *strb,
 }
 
 /*
+ * This structure is used to keep track of state while writing out a sequential
+ * string.
+ */
+typedef struct {
+	v8string_t	*v8sw_strp;		/* input string */
+	v8string_flags_t v8sw_v8flags;		/* string flags */
+	uintptr_t	v8sw_charsp;		/* start of raw string data */
+	size_t		v8sw_readoff;		/* current posn in "charsp" */
+	size_t		v8sw_inbytesperchar;	/* bytes of input per char */
+	size_t		v8sw_nreadchars;	/* characters read so far */
+
+	/*
+	 * Unlike the arguments to v8string_write_seq(), the slice fields below
+	 * have been normalized to the correct values.  (The same-named
+	 * arguments to the function may contain default values that require
+	 * computation of the actual values, which will be stored here.)
+	 */
+	size_t		v8sw_sliceoffset;	/* initial offset (nchars) */
+	size_t		v8sw_slicelen;		/* write length (nchars) */
+
+	mdbv8_strbuf_t	*v8sw_strb;		/* output buffer */
+	mdbv8_strappend_flags_t v8sw_strflags;	/* output flags */
+
+	char		*v8sw_chunk;		/* raw data (input) buffer */
+	size_t		v8sw_chunksz;		/* raw data buffer size */
+	size_t		v8sw_chunki;		/* position in raw buffer */
+	boolean_t	v8sw_chunklast;		/* this is the last chunk */
+	boolean_t	v8sw_done;		/* finished the write */
+} v8string_write_t;
+
+/*
+ * See v8string_write_sizecheck().
+ */
+typedef enum {
+	V8SC_DONTKNOW,
+	V8SC_WILLFIT,
+	V8SC_WONTFIT,
+	V8SC_NODANGER
+} v8string_sizecheck_t;
+
+static v8string_sizecheck_t v8string_write_sizecheck(v8string_write_t *);
+static int v8string_write_seq_chunk(v8string_write_t *);
+
+/*
  * Implementation of v8string_write() for sequential strings.  "usliceoffset"
  * and "uslicelen" denote the a range of characters in the string to write.
  */
@@ -236,12 +283,13 @@ v8string_write_seq(v8string_t *strp, mdbv8_strbuf_t *strb,
 	size_t sliceoffset;	/* actual slice offset */
 	size_t slicelen;	/* actual slice length */
 	size_t nstrchrs;	/* characters in the string */
-	size_t nreadoffset;	/* offset (in bytes) from start of string */
-	size_t nreadchrs;	/* total number of characters to read */
-	size_t bytesperchar;	/* bytes per character */
+	size_t inbytesperchar;	/* bytes per character */
 	uintptr_t charsp;	/* start of string */
 	size_t bufsz;		/* internal buffer size */
 	char buf[8192];		/* internal buffer */
+	int err;
+
+	v8string_write_t write;	/* write state */
 
 	bufsz = sizeof (buf);
 	nstrchrs = v8string_length(strp);
@@ -293,79 +341,194 @@ v8string_write_seq(v8string_t *strp, mdbv8_strbuf_t *strb,
 	 * looking at an ASCII or "two-byte" string.
 	 */
 	if ((v8flags & JSSTR_ISASCII) != 0) {
-		bytesperchar = 1;
+		inbytesperchar = 1;
 		charsp = strp->v8s_addr + V8_OFF_SEQASCIISTR_CHARS;
 	} else {
-		bytesperchar = 2;
+		inbytesperchar = 2;
 		charsp = strp->v8s_addr + V8_OFF_SEQTWOBYTESTR_CHARS;
 	}
 
 	/*
-	 * There's a lot of potential optimization in the loops below, but the
-	 * semantics are tricky, so let's gather data before assuming there's a
-	 * performance issue.
+	 * At this point, we've computed everything we need to start reading the
+	 * input string into our data buffer in chunks and then write those
+	 * chunks out to the output buffer.  We store this information into a
+	 * structure so we can implement logical pieces of the algorithm below
+	 * in separate functions.
 	 */
-	nreadoffset = sliceoffset * bytesperchar;
-	nreadchrs = 0;
-	while (nreadchrs < slicelen) {
-		size_t i, bufbytesleft, toread;
-		uint16_t chrval;
+	write.v8sw_strp = strp;
+	write.v8sw_v8flags = v8flags;
+	write.v8sw_charsp = charsp;
+	write.v8sw_readoff = sliceoffset * inbytesperchar;
+	write.v8sw_inbytesperchar = inbytesperchar;
+	write.v8sw_nreadchars = 0;
+	write.v8sw_sliceoffset = sliceoffset;
+	write.v8sw_slicelen = slicelen;
+	write.v8sw_strb = strb;
+	write.v8sw_strflags = strflags;
+	write.v8sw_chunk = &buf[0];
+	write.v8sw_chunksz = bufsz;
+	write.v8sw_chunki = 0;
+	write.v8sw_done = B_FALSE;
 
-		toread = MIN(bufsz, bytesperchar * (slicelen - nreadchrs));
-		if (mdb_vread(buf, toread, charsp + nreadoffset) == -1) {
-			v8_warn("failed to read SeqString data");
-			return (-1);
-		}
-
-		nreadoffset += toread;
-		i = 0;
-
-		while (nreadchrs < slicelen && i < toread) {
-			/*
-			 * If we're low on space in the buffer, then try to
-			 * leave enough space for an ellipsis.  Note that we
-			 * can't calculate this once outside the loop (by
-			 * comparing the slice length to the space left in the
-			 * buffer) because some of the characters in the string
-			 * may be escaped when written out, in which case they
-			 * will expand to more than one byte.
-			 */
-			bufbytesleft = mdbv8_strbuf_bytesleft(strb);
-			if (bufbytesleft <= sizeof ("[...]") - 1) {
-				mdbv8_strbuf_appends(strb, "[...]", strflags);
-				/*
-				 * XXX It would be nice if callers could know
-				 * whether the string was truncated or not.
-				 * Maybe this whole interface would be cleaner
-				 * if we first calculated the number of bytes
-				 * required to store the result of this string.
-				 * Then we _could_ calculate ahead of time
-				 * how many of the string's characters to print.
-				 * And if we had that interface, callers could
-				 * make sure the buffer was large enough or know
-				 * that the string was truncated.  However, that
-				 * will require two passes, each of which
-				 * requires a bunch of mdb_vreads().
-				 * XXX that applies to the similar block in
-				 * v8string_write_ext() too.
-				 */
-				return (0);
-			}
-
-			if ((v8flags & JSSTR_ISASCII) != 0) {
-				mdbv8_strbuf_appendc(strb, buf[i], strflags);
-			} else {
-				assert(i % 2 == 0);
-				chrval = *((uint16_t *)(buf + i));
-				mdbv8_strbuf_appendc(strb, chrval, strflags);
-			}
-
-			nreadchrs++;
-			i += bytesperchar;
+	while (!write.v8sw_done) {
+		err = v8string_write_seq_chunk(&write);
+		if (err != 0) {
+			break;
 		}
 	}
 
+	return (err);
+}
+
+static int
+v8string_write_seq_chunk(v8string_write_t *writep)
+{
+	size_t inbytesleft, nbytestoread;
+	v8string_sizecheck_t sizecheck;
+
+	inbytesleft = writep->v8sw_inbytesperchar *
+	    (writep->v8sw_slicelen - writep->v8sw_nreadchars);
+	if (writep->v8sw_chunksz < inbytesleft) {
+		nbytestoread = writep->v8sw_chunksz;
+		writep->v8sw_chunklast = B_FALSE;
+	} else {
+		nbytestoread = inbytesleft;
+		writep->v8sw_chunklast = B_TRUE;
+	}
+
+	if (mdb_vread(writep->v8sw_chunk, nbytestoread,
+	    writep->v8sw_charsp + writep->v8sw_readoff) == -1) {
+		v8_warn("failed to read SeqString data");
+		return (-1);
+	}
+
+	writep->v8sw_chunki = 0;
+	while (writep->v8sw_nreadchars < writep->v8sw_slicelen &&
+	    writep->v8sw_chunki < nbytestoread) {
+		sizecheck = v8string_write_sizecheck(writep);
+		if (sizecheck == V8SC_WONTFIT) {
+			/*
+			 * XXX It would be nice if callers could know whether
+			 * the string was truncated or not.  Maybe this whole
+			 * interface would be cleaner if we first calculated the
+			 * number of bytes required to store the result of this
+			 * string.  Then we _could_ calculate ahead of time how
+			 * many of the string's characters to print.  And if we
+			 * had that interface, callers could make sure the
+			 * buffer was large enough or know that the string was
+			 * truncated.  However, that will require two passes,
+			 * each of which requires a bunch of mdb_vreads().
+			 * XXX that applies to the similar block in
+			 * v8string_write_ext() too.
+			 */
+			mdbv8_strbuf_appends(writep->v8sw_strb,
+			    v8s_truncate_marker, writep->v8sw_strflags);
+			writep->v8sw_done = B_TRUE;
+			return (0);
+		}
+
+		if (sizecheck == V8SC_DONTKNOW) {
+			/*
+			 * This can't happen at the beginning of a chunk, and if
+			 * it did, it would mean we stopped making forward
+			 * progress.
+			 */
+			assert(writep->v8sw_chunki != 0);
+			return (0);
+		}
+
+		assert(sizecheck == V8SC_WILLFIT || sizecheck == V8SC_NODANGER);
+		writep->v8sw_readoff += writep->v8sw_inbytesperchar;
+
+		if ((writep->v8sw_v8flags & JSSTR_ISASCII) != 0) {
+			mdbv8_strbuf_appendc(
+			    writep->v8sw_strb,
+			    writep->v8sw_chunk[writep->v8sw_chunki],
+			    writep->v8sw_strflags);
+		} else {
+			uint16_t chrval;
+			assert(writep->v8sw_chunki % 2 == 0);
+			chrval = *((uint16_t *)(
+			    writep->v8sw_chunk + writep->v8sw_chunki));
+			mdbv8_strbuf_appendc(
+			    writep->v8sw_strb, chrval,
+			    writep->v8sw_strflags);
+		}
+
+		writep->v8sw_nreadchars++;
+		writep->v8sw_chunki += writep->v8sw_inbytesperchar;
+	}
+
+	assert(writep->v8sw_nreadchars <= writep->v8sw_slicelen);
+	if (writep->v8sw_nreadchars == writep->v8sw_slicelen) {
+		writep->v8sw_done = B_TRUE;
+	}
+
 	return (0);
+}
+
+static v8string_sizecheck_t
+v8string_write_sizecheck(v8string_write_t *writep)
+{
+	size_t outbytesleft;
+	size_t maxoutbytesperchar = 2;
+	size_t i, noutbytes;
+	uint16_t chrval;
+	size_t firstcharbytes, nreadchars;
+
+	/*
+	 * If writing this character clearly leaves us with enough output bytes
+	 * to write the truncate marker, we don't need to worry about this yet.
+	 */
+	outbytesleft = mdbv8_strbuf_bytesleft(writep->v8sw_strb);
+	if (outbytesleft - maxoutbytesperchar >= v8s_truncate_marker_bytes) {
+		return (V8SC_NODANGER);
+	}
+
+	/*
+	 * It's going to be close, so we've got to walk through the rest of the
+	 * chunk and count the number of bytes to figure out if we're going to
+	 * make it.
+	 */
+	i = writep->v8sw_chunki;
+	assert(i < writep->v8sw_chunksz);
+	assert(writep->v8sw_nreadchars < writep->v8sw_slicelen);
+	noutbytes = 0;
+	nreadchars = 0;
+	while (i < writep->v8sw_chunksz &&
+	    writep->v8sw_nreadchars + nreadchars < writep->v8sw_slicelen) {
+		if ((writep->v8sw_v8flags & JSSTR_ISASCII) != 0) {
+			chrval = writep->v8sw_chunk[i];
+		} else {
+			chrval = *((uint16_t *)(writep->v8sw_chunk + i));
+		}
+
+		noutbytes += mdbv8_strbuf_nbytesforchar(
+		    chrval, writep->v8sw_strflags);
+		if (i == writep->v8sw_chunki) {
+			firstcharbytes = noutbytes;
+		}
+		i += writep->v8sw_inbytesperchar;
+		nreadchars++;
+	}
+
+	/*
+	 * As above, if we'll still have enough bytes to write the marker even
+	 * if we write the first charactdr, then return V8SC_NODANGER.
+	 */
+	if (firstcharbytes <= outbytesleft - v8s_truncate_marker_bytes) {
+		return (V8SC_NODANGER);
+	}
+
+	if (noutbytes > outbytesleft) {
+		return (V8SC_WONTFIT);
+	}
+
+	if (i == writep->v8sw_chunksz && !writep->v8sw_chunklast) {
+		return (V8SC_DONTKNOW);
+	}
+
+	return (V8SC_WILLFIT);
 }
 
 /*
@@ -392,7 +555,8 @@ v8string_write_cons(v8string_t *strp, mdbv8_strbuf_t *strb,
 	    strp->v8s_info.v8s_consinfo.v8s_cons_p2, strp->v8s_memflags);
 
 	if (str1p == NULL || str2p == NULL) {
-		mdbv8_strbuf_sprintf(strb, "<failed to read cons ptrs>");
+		mdbv8_strbuf_sprintf(strb,
+		    "<string (failed to read cons ptrs)>");
 	} else {
 		flags = JSSTR_BUMPDEPTH(v8flags);
 		rv = v8string_write(str1p, strb, strflags, flags);
