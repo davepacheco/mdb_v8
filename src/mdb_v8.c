@@ -5839,8 +5839,12 @@ dcmd_v8str(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 	}
 
 	if (bufsz == -1) {
-		/* XXX + 10 is to avoid ellipsis behavior */
-		bufsz = v8string_length(strp) + 10;
+		/*
+		 * The buffer size should accommodate the length of the string,
+		 * plus the surrounding quotes, plus the terminator.  (If we're
+		 * wrong here, the visible string will just be truncated.)
+		 */
+		bufsz = v8string_length(strp) + sizeof ("\"\"");
 	}
 
 	if ((strb = mdbv8_strbuf_alloc(bufsz, UM_GC)) == NULL) {

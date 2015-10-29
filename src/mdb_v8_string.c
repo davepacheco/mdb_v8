@@ -481,7 +481,8 @@ v8string_write_sizecheck(v8string_write_t *writep)
 	 * to write the truncate marker, we don't need to worry about this yet.
 	 */
 	outbytesleft = mdbv8_strbuf_bytesleft(writep->v8sw_strb);
-	if (outbytesleft - maxoutbytesperchar >= v8s_truncate_marker_bytes) {
+	if (outbytesleft > maxoutbytesperchar &&
+	    outbytesleft - maxoutbytesperchar >= v8s_truncate_marker_bytes) {
 		return (V8SC_NODANGER);
 	}
 
@@ -514,9 +515,10 @@ v8string_write_sizecheck(v8string_write_t *writep)
 
 	/*
 	 * As above, if we'll still have enough bytes to write the marker even
-	 * if we write the first charactdr, then return V8SC_NODANGER.
+	 * if we write the first character, then return V8SC_NODANGER.
 	 */
-	if (firstcharbytes <= outbytesleft - v8s_truncate_marker_bytes) {
+	if (outbytesleft > v8s_truncate_marker_bytes &&
+	    firstcharbytes <= outbytesleft - v8s_truncate_marker_bytes) {
 		return (V8SC_NODANGER);
 	}
 
@@ -546,7 +548,8 @@ v8string_write_cons(v8string_t *strp, mdbv8_strbuf_t *strb,
 	str1addr = strp->v8s_info.v8s_consinfo.v8s_cons_p1;
 	str2addr = strp->v8s_info.v8s_consinfo.v8s_cons_p2;
 	if ((v8flags & JSSTR_VERBOSE) != 0) {
-		mdb_printf("str %p: cons of %p and %p\n", str1addr, str2addr);
+		mdb_printf("str %p: cons of %p and %p\n",
+		    strp->v8s_addr, str1addr, str2addr);
 	}
 
 	str1p = v8string_load(
@@ -621,14 +624,13 @@ v8string_write_ext(v8string_t *strp, mdbv8_strbuf_t *strb,
     mdbv8_strappend_flags_t strflags, v8string_flags_t v8flags)
 {
 	char buf[8192];
-	size_t bufsz;
-	size_t nread, ntotal;
+	size_t ntotal;
 	uintptr_t charsp;
+	v8string_write_t write;
+	int err;
 
-	bufsz = sizeof (buf);
 	charsp = strp->v8s_info.v8s_external.v8s_external_nodedata;
 	ntotal = v8string_length(strp);
-	nread = 0;
 
 	if ((v8flags & JSSTR_VERBOSE) != 0) {
 		mdbv8_strbuf_sprintf(strb,
@@ -642,37 +644,29 @@ v8string_write_ext(v8string_t *strp, mdbv8_strbuf_t *strb,
 		return (0);
 	}
 
-	while (nread < ntotal) {
-		size_t i, ntoread;
+	bzero(&write, sizeof (write));
+	write.v8sw_strp = strp;
+	write.v8sw_v8flags = v8flags;
+	write.v8sw_charsp = charsp;
+	write.v8sw_readoff = 0;
+	write.v8sw_inbytesperchar = 1;
+	write.v8sw_nreadchars = 0;
+	write.v8sw_sliceoffset = 0;
+	write.v8sw_slicelen = ntotal;
+	write.v8sw_strb = strb;
+	write.v8sw_strflags = strflags;
+	write.v8sw_chunk = buf;
+	write.v8sw_chunksz = sizeof (buf);
+	write.v8sw_chunki = 0;
+	write.v8sw_chunklast = B_FALSE;
+	write.v8sw_done = B_FALSE;
 
-		ntoread = MIN(bufsz, ntotal - nread);
-		if (mdb_vread(buf, ntoread, charsp) == -1) {
-			mdbv8_strbuf_sprintf(strb,
-			    "<failed to read external string data>");
-			return (0);
-		}
-
-		if (nread == 0 && buf[0] != '\0' && !isascii(buf[0])) {
-			mdbv8_strbuf_sprintf(strb,
-			    "<found non-ASCII external string data>");
-			return (0);
-		}
-
-		nread += ntoread;
-		charsp += ntoread;
-		for (i = 0; i < ntoread; i++) {
-			/*
-			 * See v8string_write_seq().
-			 */
-			if (mdbv8_strbuf_bytesleft(strb) <=
-			    sizeof ("[...]") - 1) {
-				mdbv8_strbuf_appends(strb, "[...]", strflags);
-				return (0);
-			}
-
-			mdbv8_strbuf_appendc(strb, buf[i], strflags);
+	while (!write.v8sw_done) {
+		err = v8string_write_seq_chunk(&write);
+		if (err != 0) {
+			break;
 		}
 	}
 
-	return (0);
+	return (err);
 }
