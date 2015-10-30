@@ -368,7 +368,8 @@ v8string_write_seq(v8string_t *strp, mdbv8_strbuf_t *strb,
 	write.v8sw_chunk = &buf[0];
 	write.v8sw_chunksz = bufsz;
 	write.v8sw_chunki = 0;
-	write.v8sw_done = B_FALSE;
+	write.v8sw_done = slicelen == 0;
+	err = 0;
 
 	while (!write.v8sw_done) {
 		err = v8string_write_seq_chunk(&write);
@@ -398,8 +399,10 @@ v8string_write_seq_chunk(v8string_write_t *writep)
 
 	if (mdb_vread(writep->v8sw_chunk, nbytestoread,
 	    writep->v8sw_charsp + writep->v8sw_readoff) == -1) {
-		v8_warn("failed to read SeqString data");
-		return (-1);
+		mdbv8_strbuf_sprintf(writep->v8sw_strb,
+		    "<string (failed to read data)>");
+		writep->v8sw_done = B_TRUE;
+		return (0);
 	}
 
 	writep->v8sw_chunki = 0;
@@ -659,7 +662,8 @@ v8string_write_ext(v8string_t *strp, mdbv8_strbuf_t *strb,
 	write.v8sw_chunksz = sizeof (buf);
 	write.v8sw_chunki = 0;
 	write.v8sw_chunklast = B_FALSE;
-	write.v8sw_done = B_FALSE;
+	write.v8sw_done = ntotal == 0;
+	err = 0;
 
 	while (!write.v8sw_done) {
 		err = v8string_write_seq_chunk(&write);
