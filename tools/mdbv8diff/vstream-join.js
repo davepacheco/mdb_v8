@@ -1,4 +1,7 @@
 /*
+ * XXX This should be extracted into a separate Node module.
+ */
+/*
  * A JoinStream takes as constructor inputs a group of sorted object-mode
  * streams and joins them.  For example, two input streams might contain:
  *
