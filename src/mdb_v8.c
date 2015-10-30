@@ -1567,7 +1567,7 @@ read_heap_dict(uintptr_t addr,
 		goto out;
 	}
 
-	for (i = V8_DICT_START_INDEX + V8_DICT_PREFIX_SIZE; i < ndict;
+	for (i = V8_DICT_START_INDEX + V8_DICT_PREFIX_SIZE; i + 1 < ndict;
 	    i += V8_DICT_ENTRY_SIZE) {
 		/*
 		 * The layout here is key, value, details. (This is hardcoded
