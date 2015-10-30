@@ -1,0 +1,396 @@
+#!/usr/bin/env node
+
+/*
+ * mdbv8diff FILE1 FILE2: given FILE1 and FILE2 as test output from mdb_v8,
+ * report differences.  This is intended for regression testing across versions.
+ * These inputs should be generated as:
+ *
+ *    ::findjsobjects -l | ::findjsobjects ! sort > tmp
+ *    ::cat tmp | ::jsprint -ad2 -N 0t100 > file
+ *
+ * In this example, "file" is the file that would become one of the inputs to
+ * this program.  The other input would come from applying the same process
+ * using a different version of mdb_v8.
+ */
+
+var mod_assertplus = require('assert-plus');
+var mod_cmdutil = require('cmdutil');
+var mod_events = require('events');
+var mod_fs = require('fs');
+var mod_lstream = require('lstream');
+var mod_stream = require('stream');
+var mod_util = require('util');
+var mod_vstream = require('vstream');
+
+var sprintf = require('extsprintf').sprintf;
+var VError = require('verror');
+
+var JoinStream = require('./vstream-join');
+
+function main()
+{
+	var source1, source2;
+	var join, diff, serializer;
+
+	mod_cmdutil.configure({
+	    'usageMessage': 'Compare output from mdb_v8.',
+	    'synopses': [ 'FILE1 FILE2' ]
+	});
+
+	if (process.argv.length != 4) {
+		mod_cmdutil.usage();
+	}
+
+	source1 = createInputStream(process.argv[2]);
+	source2 = createInputStream(process.argv[3]);
+	join = new JoinStream({
+	    'joinOnIndex': 0,
+	    'sources': [ source1, source2 ]
+	});
+
+	diff = new DiffStream({
+	    'labels': [ process.argv[2], process.argv[3] ]
+	});
+	join.pipe(diff);
+
+	serializer = new DiffStreamSerializer();
+	diff.pipe(serializer);
+	serializer.pipe(process.stdout);
+
+	process.stdout.on('error', function (err) {
+		if (err['code'] == 'EPIPE')
+			return;
+		throw (err);
+	});
+}
+
+/*
+ * Returns the tail of a stream pipeline that goes:
+ *
+ *     File read stream (path) -> line parser -> mdbv8 parser
+ */
+function createInputStream(path)
+{
+	var filestream, lstream, parser;
+
+	filestream = mod_fs.createReadStream(path);
+	filestream.on('error', function (err) {
+		mod_cmdutil.fail(new VError(err, 'open "%s"', path));
+	});
+
+	lstream = new mod_lstream();
+	mod_vstream.wrapTransform(lstream);
+	filestream.pipe(lstream);
+
+	parser = new ParserStream();
+	lstream.pipe(parser);
+
+	return (parser);
+}
+
+function ParserStream()
+{
+	this.ps_accum = [];
+	mod_stream.Transform.call(this, { 'objectMode': true });
+	mod_vstream.wrapTransform(this);
+}
+
+mod_util.inherits(ParserStream, mod_stream.Transform);
+
+ParserStream.prototype._transform = function (chunk, _, callback)
+{
+	/* There should be an lstream in front of this stream. */
+	mod_assertplus.equal(chunk.indexOf('\n'), -1);
+
+	this.ps_accum.push(chunk.trim());
+
+	if (chunk.charAt(0) == '}' || chunk.charAt(0) == ']') {
+		this.valueDone();
+	}
+
+	setImmediate(callback);
+};
+
+ParserStream.prototype._flush = function (callback)
+{
+	if (this.ps_accum.length > 0)
+		this.valueDone();
+	setImmediate(callback);
+};
+
+ParserStream.prototype.valueDone = function ()
+{
+	var lines, line, err, colon, addr;
+	var parsed, opener;
+
+	mod_assertplus.ok(this.ps_accum.length > 0);
+	lines = this.ps_accum;
+	this.ps_accum = [];
+
+	line = lines[lines.length - 1];
+	if (line != ']' && line != '}') {
+		err = new VError('unrecognized value');
+		this.vsWarn(err, 'unrecognized value');
+		return;
+	}
+
+	line = lines[0];
+	colon = line.indexOf(':');
+	if (colon == -1) {
+		err = new VError('value has no address');
+		this.vsWarn(err, 'value has no address');
+		return;
+	}
+
+	/*
+	 * "Parse" is a strong word for what we're doing.  If we wanted to do
+	 * this reliably, we should get mdb_v8 emitting parseable output.  We're
+	 * getting there, but the point of this tool is to help identify changes
+	 * in the existing, not-very-parseable output.  It's just supposed to be
+	 * a little less unwieldy than diff(1).  So we basically just break
+	 * things out on a by-object basis, compare lines one-by-one, and ignore
+	 * known changes.
+	 */
+	addr = line.substr(0, colon);
+	parsed = {};
+	parsed['addr'] = addr;
+	opener = line.charAt(colon + ': '.length);
+	if (opener == '{') {
+		parsed['type'] = 'object';
+		parsed['lines'] = lines.slice(1);
+		this.push([ addr, parsed ]);
+	} else if (opener == '[') {
+		parsed['type'] = 'array';
+		parsed['lines'] = lines.slice(1);
+		this.push([ addr, parsed ]);
+	} else {
+		err = new VError('unknown type');
+		this.vsWarn(err, 'unknown type');
+	}
+};
+
+
+function DiffStream(args)
+{
+	mod_assertplus.object(args, 'args');
+	mod_assertplus.arrayOfString(args.labels, 'args.labels');
+	mod_assertplus.equal(args.labels.length, 2);
+
+	mod_stream.Transform.call(this, { 'objectMode': true });
+	mod_vstream.wrapTransform(this);
+
+	this.ds_labels = args.labels.slice(0);
+}
+
+mod_util.inherits(DiffStream, mod_stream.Transform);
+
+DiffStream.prototype._transform = function (joined, _, callback)
+{
+	var rowlabel, label1, label2;
+	var value1, value2;
+	var i, max;
+
+	if (joined.length != 3) {
+		this.vsWarn(new Error('garbled value'), 'garbled value');
+		setImmediate(callback);
+		return;
+	}
+
+	mod_assertplus.string(joined[0], 'joined[0]');
+	rowlabel = joined[0];
+
+	if (this.ignoreAddress(rowlabel)) {
+		setImmediate(callback);
+		return;
+	}
+
+	label1 = this.ds_labels[0];
+	value1 = joined[1];
+
+	label2 = this.ds_labels[1];
+	value2 = joined[2];
+
+	if (value1 === null) {
+		this.push({
+		    'label': rowlabel,
+		    'message': sprintf('only in %s', label2)
+		});
+		return;
+	}
+	if (value2 === null) {
+		this.push({
+		    'label': rowlabel,
+		    'message': sprintf('only in %s', label1)
+		});
+		return;
+	}
+
+	value1 = value1[1];
+	value2 = value2[1];
+	if (value1['type'] != value2['type']) {
+		this.push({
+		    'label': rowlabel,
+		    'messages': [ {
+		        'source': label1,
+			'message': sprintf('type %s', value1['type'])
+		    }, {
+		        'source': label2,
+			'message': sprintf('type %s', value2['type'])
+		    } ]
+		});
+
+		return;
+	}
+
+	/*
+	 * Compare lines one-by-one.  Really, the only difference
+	 * between this tool and diff(1) is that we're going to ignore
+	 * certain known differences.
+	 */
+	max = Math.max(value1['lines'].length, value2['lines'].length);
+	for (i = 0; i < max; i++) {
+		if (i >= value1['lines'].length) {
+			this.push({
+			    'label': rowlabel,
+			    'message': sprintf('line %d: property missing ' +
+			        'from "%s"', i + 1, label1)
+			});
+		} else if (i >= value2['lines'].length) {
+			this.push({
+			    'label': rowlabel,
+			    'message': sprintf('line %d: property missing ' +
+			        'from "%s"', i + 1, label2)
+			});
+		} else if (value1['lines'][i] != value2['lines'][i] &&
+		    !this.ignoreDiff(value1['lines'][i], value2['lines'][i])) {
+			this.push({
+			    'label': rowlabel,
+			    'messages': [ {
+				'source': label1,
+			        'message': sprintf('line %d: %s\n',
+				    i + 1, value1['lines'][i])
+			    }, {
+			        'source': label2,
+			        'message': sprintf('line %d: %s\n',
+				    i + 1, value2['lines'][i])
+			    } ]
+			});
+		}
+	}
+
+	setImmediate(callback);
+};
+
+DiffStream.prototype.ignoreAddress = function (addr)
+{
+	var ignore = false;
+
+	switch (addr) {
+	case '82741231':
+		/*
+		 * Subproperty fd268e71 ("_events") is a SlicedString whose
+		 * slice is way past the end of its parent string.  The value
+		 * should be the empty string, but old versions erroneously
+		 * printed some characters here.
+		 */
+		ignore = true;
+		this.vsCounterBump('garbage_SlicedString');
+		break;
+
+	case '827b6d4d':
+		/*
+		 * A subproperty of this object ran into a now-fixed bug in
+		 * read_heap_dict() that would emit a bogus property.
+		 */
+		ignore = true;
+		this.vsCounterBump('garbage_read_heap_dict');
+		break;
+	}
+
+	return (ignore);
+};
+
+DiffStream.prototype.ignoreDiff = function (value1, value2)
+{
+	var p;
+
+	/*
+	 * This function has a lot of regular expressions that confuse jsstyle.
+	 */
+	/* BEGIN JSSTYLED */
+
+	/*
+	 * Many of the difference across the fix for issue #35 result from more
+	 * consistent (usually more specific) error messages.
+	 */
+	if (/<could not read type>/.test(value1) ||
+	    /<not a string>/.test(value1) ||
+	    /<string \(failed to read length\)/.test(value1) ||
+	    /<external string \(failed to read ExternalString data\)/.test(
+	    value1) ||
+	    /<external string \(failed to read ExternalString ascii data\)/.
+	    test(value1) ||
+	    /<sliced string \(failed to read offset\)/.test(value1) ||
+	    /<sliced string \(failed to read length\)/.test(value1) ||
+	    /<external two-byte string>/.test(value1) ||
+	    /<external string (failed to read ExternalString data)>/.test(
+	    value1)) {
+		if (/<string \(failed to read cons ptrs\)>/.test(value2) ||
+		    /<string \(failed to load string\)>/.test(value2) ||
+		    /<string \(failed to read offset\)>/.test(value2) ||
+		    /<string \(failed to read data\)>/.test(value2)) {
+			this.vsCounterBump('more_specific_string_error');
+			return (true);
+		}
+	}
+
+	/*
+	 * Some of those differences just relate to quoting.
+	 */
+	if (/<external two-byte string>/.test(value1) &&
+	    /"<external two-byte string>"/.test(value2)) {
+		this.vsCounterBump('proper_quoting');
+	    	return (true);
+	}
+
+	/*
+	 * In some cases, the old code would truncate strings 1 byte before
+	 * necessary.
+	 */
+	p = value2.indexOf('[...]');
+	if (/\[...\]/.test(value1) && p != -1 &&
+	    value1 == value2.substr(0, p - 1) + value2.substr(p)) {
+		this.vsCounterBump('accurate_truncation');
+		return (true);
+	}
+
+	/* END JSSTYLED */
+
+	return (false);
+};
+
+function DiffStreamSerializer()
+{
+	mod_stream.Transform.call(this, { 'objectMode': true });
+}
+
+mod_util.inherits(DiffStreamSerializer, mod_stream.Transform);
+
+DiffStreamSerializer.prototype._transform = function (obj, _, callback)
+{
+	var self = this;
+
+	if (obj.hasOwnProperty('message')) {
+		self.push(sprintf('%s: %s\n', obj['label'], obj['message']));
+	} else {
+		obj['messages'].forEach(function (m) {
+			self.push(sprintf('%s: %s: %s',
+			    obj['label'], m['source'], m['message']));
+		});
+	}
+
+	setImmediate(callback);
+};
+
+
+main();

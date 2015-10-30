@@ -81,7 +81,9 @@ CSTYLE_FLAGS		+= -cCp
 CATEST			 = tools/catest
 
 # JavaScript source files (used in test code)
-JS_FILES		 = $(wildcard test/standalone/*.js)
+JS_FILES		 = $(wildcard test/standalone/*.js) \
+			   $(wildcard tools/mdbv8diff/*.js) \
+			   tools/mdbv8diff/mdbv8diff
 JSL_FILES_NODE		 = $(JS_FILES)
 JSSTYLE_FILES		 = $(JS_FILES)
 JSL_CONF_NODE		 = tools/jsl.node.conf
