@@ -357,7 +357,7 @@ DiffStream.prototype.ignoreDiff = function (value1, value2)
 
 	if (/<external string \(failed to read ExternalString ascii data\)>/.
 	    test(value1) &&
-	    /"<string (contents looks invalid)>"/.test(value2)) {
+	    /"<string \(contents looks invalid\)>"/.test(value2)) {
 		this.vsCounterBump('external_string_error');
 		return (true);
 	}
