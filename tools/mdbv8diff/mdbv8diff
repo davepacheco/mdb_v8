@@ -104,7 +104,13 @@ ParserStream.prototype._transform = function (chunk, _, callback)
 
 	this.ps_accum.push(chunk.trim());
 
-	if (chunk.charAt(0) == '}' || chunk.charAt(0) == ']') {
+	/*
+	 * This gnarly regexp matches top-level values that are empty objects
+	 * or empty arrays (e.g., "{}" and "[]").
+	 */
+	if (chunk.charAt(0) == '}' || chunk.charAt(0) == ']' ||
+	    /* JSSTYLED */
+	    /^[0-9a-fA-F]+: [{[][}\]]/.test(chunk)) {
 		this.valueDone();
 	}
 
@@ -304,6 +310,9 @@ DiffStream.prototype.ignoreAddress = function (addr)
 		 */
 		ignore = true;
 		this.vsCounterBump('garbage_read_heap_dict');
+		break;
+
+	default:
 		break;
 	}
 
