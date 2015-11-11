@@ -304,9 +304,11 @@ DiffStream.prototype.ignoreAddress = function (addr)
 		break;
 
 	case '827b6d4d':
+	case '88df1c99':
 		/*
-		 * A subproperty of this object ran into a now-fixed bug in
-		 * read_heap_dict() that would emit a bogus property.
+		 * 827b6d4d ran into a now-fixed bug in read_heap_dict() that
+		 * would emit a bogus property.  827b6d4d refers to 88df1c99, so
+		 * its output has the same problem.
 		 */
 		ignore = true;
 		this.vsCounterBump('garbage_read_heap_dict');
@@ -351,6 +353,13 @@ DiffStream.prototype.ignoreDiff = function (value1, value2)
 			this.vsCounterBump('more_specific_string_error');
 			return (true);
 		}
+	}
+
+	if (/<external string \(failed to read ExternalString ascii data\)>/.
+	    test(value1) &&
+	    /"<string (contents looks invalid)>"/.test(value2)) {
+		this.vsCounterBump('external_string_error');
+		return (true);
 	}
 
 	/*
