@@ -256,6 +256,7 @@ typedef struct {
 	size_t		v8sw_chunki;		/* position in raw buffer */
 	boolean_t	v8sw_chunklast;		/* this is the last chunk */
 	boolean_t	v8sw_done;		/* finished the write */
+	boolean_t	v8sw_asciicheck;	/* bail out on non-ASCII */
 } v8string_write_t;
 
 /*
@@ -369,6 +370,7 @@ v8string_write_seq(v8string_t *strp, mdbv8_strbuf_t *strb,
 	write.v8sw_chunksz = bufsz;
 	write.v8sw_chunki = 0;
 	write.v8sw_done = slicelen == 0;
+	write.v8sw_asciicheck = B_FALSE;
 	err = 0;
 
 	while (!write.v8sw_done) {
@@ -403,6 +405,23 @@ v8string_write_seq_chunk(v8string_write_t *writep)
 		    "<string (failed to read data)>");
 		writep->v8sw_done = B_TRUE;
 		return (0);
+	}
+
+	/*
+	 * For external strings, we proactively check that it appears to be
+	 * ASCII.  This is just a heuristic to avoid dumping a bunch of garbage,
+	 * and we do it as much for historical reasons as anything else.
+	 */
+	if (writep->v8sw_asciicheck) {
+		char firstchar = writep->v8sw_chunk[0];
+		if (firstchar != '\0' && !isascii(firstchar)) {
+			mdbv8_strbuf_sprintf(writep->v8sw_strb,
+			    "<string (contents looks invalid)>");
+			writep->v8sw_done = B_TRUE;
+			return (0);
+		}
+
+		writep->v8sw_asciicheck = B_FALSE;
 	}
 
 	writep->v8sw_chunki = 0;
@@ -663,6 +682,7 @@ v8string_write_ext(v8string_t *strp, mdbv8_strbuf_t *strb,
 	write.v8sw_chunki = 0;
 	write.v8sw_chunklast = B_FALSE;
 	write.v8sw_done = ntotal == 0;
+	write.v8sw_asciicheck = B_TRUE;
 	err = 0;
 
 	while (!write.v8sw_done) {
