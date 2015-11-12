@@ -101,11 +101,11 @@ elsewhere on the web.
 
 ### Stress testing
 
-There's a [dumpobjects](../tools/dumpobjects) tool that takes a core file and an
-mdb\_v8 binary and uses `findjsobjects` and `jsprint` to enumerate all of the
-objects in a deterministic order and print them out.  With a representative core
-file, this is a decent coverage test, since it will likely exercise the paths
-for interpreting most types of supported objects.  At the very least, this
+There's a [dumpjsobjects](../tools/dumpjsobjects) tool that takes a core file
+and an mdb\_v8 binary and uses `findjsobjects` and `jsprint` to enumerate all of
+the objects in a deterministic order and print them out.  With a representative
+core file, this is a decent coverage test, since it will likely exercise the
+paths for interpreting most types of supported objects.  At the very least, this
 should not crash.
 
 
@@ -114,7 +114,7 @@ should not crash.
 For some kinds of changes, it's worthwhile to spend time comparing output from
 before the change with output after the change to make sure you haven't
 introduced any new issues.  The `mdbv8diff` tool can be used to compare the
-`dumpobjects` output from two different versions of mdb\_v8.
+`dumpjsobjects` output from two different versions of mdb\_v8.
 
 Why not just use `diff(1)`?  The challenge is that many changes to mdb\_v8
 change the output format slightly or fix nitty bugs that affect a large number

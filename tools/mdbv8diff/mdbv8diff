@@ -8,7 +8,7 @@
  * regression-tested with this tool.
  *
  * This tool is intended for regression testing across versions.  The input
- * files should be generated using the "dumpobjects" tool.  See the dev
+ * files should be generated using the "dumpjsobjects" tool.  See the dev
  * documentation for details.
  *
  * This tool should be viewed as an extra way to help validate a change.  It's

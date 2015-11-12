@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #
-# dumpobjects CORE_FILE DMOD_FILE OBJ_LIST OBJ_CONTENTS
+# dumpjsobjects CORE_FILE DMOD_FILE OBJ_LIST OBJ_CONTENTS
 #
 # Dump all JavaScript objects in CORE_FILE using mdb_v8 binary DMOD_FILE.  The
 # sorted list of all objects is stored into the file OBJ_LIST and the contents
@@ -13,7 +13,7 @@ set -o pipefail
 function usage
 {
 	cat <<EOF >&2
-usage: dumpobjects CORE_FILE DMOD_FILE OBJ_LIST OBJ_CONTENTS
+usage: dumpjsobjects CORE_FILE DMOD_FILE OBJ_LIST OBJ_CONTENTS
 
 Dump all JavaScript objects in CORE_FILE using mdb_v8 binary DMOD_FILE.  The
 sorted list of all objects is stored into the file OBJ_LIST and the contents of
