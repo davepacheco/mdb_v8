@@ -167,6 +167,8 @@ themselves.
 
 See the [Developer's Notes](docs/development.md) for details.
 
+There's a tool to help test on multiple Node versions in `tools/runtests_node`.
+
 
 ## License
 
