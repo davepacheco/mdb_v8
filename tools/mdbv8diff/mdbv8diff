@@ -489,7 +489,7 @@ DiffStream.prototype.ignoreDiff = function (value1, value2)
  */
 DiffStream.prototype.differOnlyInTruncation = function (value1, value2)
 {
-	var p, q, reason;
+	var i, p, q, reason;
 	var v1before, v1after;
 	var v2before, v2after;
 
@@ -598,23 +598,25 @@ DiffStream.prototype.differOnlyInTruncation = function (value1, value2)
 	}
 
 	/*
-	 * Now check that the tails of the strings match, ignoring the extra
-	 * character reported in the newer output.
+	 * Now check that the tails of the strings match.  There may be one or
+	 * two extra characters, and sadly, we have to check both.
 	 */
-	v2after = value2.substr(p + '[...]'.length + 1);
-	if (v2after.charAt(0) == '"' && v1after.charAt(0) != '"') {
-		v2after = v2after.substr(1);
-		reason = 'trunc_unneccessary_truncation_plus_quote';
-	} else {
-		reason = 'trunc_unneccessary_truncation';
+	for (i = 1; i <= 2; i++) {
+		v2after = value2.substr(p + '[...]'.length + i);
+		if (v2after.charAt(0) == '"' && v1after.charAt(0) != '"') {
+			v2after = v2after.substr(1);
+			reason = 'trunc_unneccessary_truncation_plus_quote';
+		} else {
+			reason = 'trunc_unneccessary_truncation';
+		}
+
+		if (this.differOnlyInTruncation(v1after, v2after)) {
+			this.vsCounterBump(reason);
+			return (true);
+		}
 	}
 
-	if (!this.differOnlyInTruncation(v1after, v2after)) {
-		return (false);
-	}
-
-	this.vsCounterBump(reason);
-	return (true);
+	return (false);
 };
 
 function DiffStreamSerializer()
