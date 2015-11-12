@@ -61,7 +61,7 @@ This one-liner will get you the latest 32-bit binary:
     $ mget -O $(mget -q /Joyent_Dev/public/mdb_v8/latest)/mdb_v8_ia32.so
 
 
-## Design notes
+## Design goals
 
 An important design constraint on this tool is that it should not rely on
 assistance from the JavaScript runtime environment (i.e., V8) to debug Node.js
