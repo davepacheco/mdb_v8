@@ -332,6 +332,8 @@ DiffStream.prototype.ignoreAddress = function (addr)
 
 DiffStream.prototype.ignoreDiff = function (value1, value2)
 {
+	var noquotes;
+
 	/*
 	 * This function has a lot of regular expressions that confuse jsstyle.
 	 */
@@ -372,8 +374,18 @@ DiffStream.prototype.ignoreDiff = function (value1, value2)
 	/*
 	 * Some of those differences just relate to quoting.
 	 */
-	if (/<external two-byte string>/.test(value1) &&
-	    /"<external two-byte string>"/.test(value2)) {
+	noquotes = value2.replace(
+	    /"<sliced string \(parent is not a sequential string\)>"/,
+	    '<sliced string (parent is not a sequential string)>');
+	if (noquotes != value2 && value1 == noquotes) {
+		this.vsCounterBump('proper_quoting');
+	    	return (true);
+	}
+
+	noquotes = value2.replace(
+	    /"<external two-byte string>"/,
+	    '<external two-byte string>');
+	if (noquotes != value2 && value1 == noquotes) {
 		this.vsCounterBump('proper_quoting');
 	    	return (true);
 	}
