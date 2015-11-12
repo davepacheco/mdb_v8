@@ -392,6 +392,25 @@ DiffStream.prototype.ignoreDiff = function (value1, value2)
 	}
 
 	/*
+	 * Similarly, the following two checks build on each other.
+	 */
+	fixed = value1.replace(
+	    /<sliced string \(parent is not a sequential string\)>/,
+	    '<sliced string (failed to load parent)>');
+	if (fixed != value1 && value2 == fixed) {
+		this.vsCounterBump('sliced_parent_seq');
+		return (true);
+	}
+
+	fixed = fixed.replace(
+	    /<sliced string \(failed to load parent\)>/,
+	    '"<sliced string (failed to load parent)>"');
+	if (fixed != value1 && value2 == fixed) {
+		this.vsCounterBump('sliced_parent_seq_quote');
+		return (true);
+	}
+
+	/*
 	 * Some of those differences just relate to quoting.
 	 */
 	fixed = value2.replace(
