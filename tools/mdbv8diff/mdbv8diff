@@ -332,8 +332,6 @@ DiffStream.prototype.ignoreAddress = function (addr)
 
 DiffStream.prototype.ignoreDiff = function (value1, value2)
 {
-	var p, q, v1a, v1b, v2;
-
 	/*
 	 * This function has a lot of regular expressions that confuse jsstyle.
 	 */
@@ -380,73 +378,172 @@ DiffStream.prototype.ignoreDiff = function (value1, value2)
 	    	return (true);
 	}
 
-	/*
-	 * Handle changes in string truncation.  In some cases, the old code
-	 * would truncate strings 1 byte before necessary.  For example:
-	 *
-	 *     actual string: "foo_bartholomew"
-	 *     old:           "foo_bar[...]"
-	 *     new:           "foo_bart[...]"
-	 *
-	 * If this 1-byte-conservative choice was right at the end of the
-	 * buffer, this can be the difference between truncating and not, so you
-	 * can have:
-	 *
-	 *     actual string: "foo_bart"
-	 *     old:           "foo_bar[...]"
-	 *     new:           "foo_bart"
-	 *
-	 * Besides that, in either case, the old code did not always include the
-	 * expected end quotation mark ('"').  We check all of these cases
-	 * specifically rather than a simpler, looser check in order to avoid
-	 * accidentally ignoring legitimate breakage.
-	 */
-	p = value1.indexOf('[...]');
-	if (p != -1) {
-		v1a = value1.substr(0, p) + value1.substr(p + '[...]'.length);
-		v1b = value1.substr(0, p) + '"' +
-		    value1.substr(p + '[...]'.length);
-		q = value2.indexOf('[...]');
-		if (q == -1) {
-			/*
-			 * The new string is not truncated.
-			 */
-			v2 = value2.substr(0, p) +
-			    value2.substr(p + '[...]'.length);
-			if (v1a == v2) {
-				this.vsCounterBump('unnecessary_truncation');
-				return (true);
-			}
-
-			if (v1b == v2) {
-				this.vsCounterBump(
-				    'unnecessary_truncation_plus_quote');
-				return (true);
-			}
-		} else if (q == p + 1) {
-			/*
-			 * The new string is indeed truncated one character
-			 * further into the string.  The rest of the strings
-			 * should be the same.
-			 */
-			v2 = value2.substr(0, q - 1) +
-			    value2.substr(q + '[...]'.length);
-			if (v1a == v2) {
-				this.vsCounterBump('accurate_truncation');
-				return (true);
-			}
-
-			if (v1b == v2) {
-				this.vsCounterBump(
-				    'accurate_truncation_plus_quote');
-				return (true);
-			}
-		}
-	}
-
 	/* END JSSTYLED */
 
-	return (false);
+	/*
+	 * Check for changes in string truncation.
+	 */
+	return (this.differOnlyInTruncation(value1, value2));
+};
+
+/*
+ * In some cases, the old code would truncate strings 1 byte before necessary.
+ * For example:
+ *
+ *     actual string: "foo_bartholomew"
+ *     old:           "foo_bar[...]"
+ *     new:           "foo_bart[...]"
+ *
+ * If this 1-byte-conservative choice was right at the end of the
+ * buffer, this can be the difference between truncating and not, so you
+ * can have:
+ *
+ *     actual string: "foo_bart"
+ *     old:           "foo_bar[...]"
+ *     new:           "foo_bart"
+ *
+ * Besides that, in either case, the old code did not always include the
+ * expected end quotation mark ('"').
+ *
+ * This implementation assumes there is only one truncation in the string.
+ * That's not necessarily true for strings made up of substrings that were
+ * themselves truncated.  If we start seeing those, we'll have to generalize
+ * this or consider an alternative approach.
+ */
+DiffStream.prototype.differOnlyInTruncation = function (value1, value2)
+{
+	var p, q, reason;
+	var v1before, v1after;
+	var v2before, v2after, v2middle;
+
+	/* XXX dap */
+	function dapdebug(msg) {
+		if (value1.indexOf('88d2fdc9') == -1)
+			return;
+
+		console.error('dap: %s', msg);
+	}
+
+	p = value1.indexOf('[...]');
+	dapdebug('p = ' + p);
+	if (p == -1) {
+		return (false);
+	}
+
+	v1before = value1.substr(0, p);
+	v1after = value1.substr(p + '[...]'.length);
+
+	q = value2.indexOf('[...]');
+	dapdebug('q = ' + q);
+	dapdebug('v1before = ' + v1before);
+	dapdebug('v1after = ' + v1after);
+	if (q != -1) {
+		/*
+		 * Both strings have a truncation marker.  We basically want to
+		 * compare what's before and after the marker, but there are
+		 * edge cases on either side, so it's easier to break these
+		 * checks out separately.
+		 *
+		 * First, compare the substrings before the "[...]" marker.
+		 * Remember, the second substring may have an extra character,
+		 * in which case we'll ignore it.
+		 */
+		v2before = value2.substr(0, q);
+		if (v2before.length == v1before.length + 1) {
+			dapdebug('v2before: truncating by 1');
+			v2before = value2.substr(0, q - 1);
+		}
+		dapdebug('v2before = ' + v2before);
+
+		if (v1before != v2before) {
+			/*
+			 * The strings differ in more than just truncation
+			 * because the parts before the truncation mark don't
+			 * match up (even allowing for the possible extra
+			 * character in the second string).
+			 */
+			dapdebug('FALSE (before mismatch)');
+			return (false);
+		}
+
+		/*
+		 * Now, compare the substrings after the "[...]" marker.
+		 * Remember, the second substring may have an extra '"'
+		 * character.
+		 */
+		v2after = value2.substr(q + '[...]'.length);
+		if (v2after.charAt(0) == '"' &&
+		    v2after.length == v1after.length + 1) {
+			v2after = value2.substr(q + '[...]"'.length);
+			dapdebug('v2after: dropping leading quote');
+			reason = 'accurate_truncation_plus_quote';
+		} else {
+			reason = 'accurate_truncation';
+		}
+		dapdebug('v2after = ' + v2after);
+
+		if (v1after != v2after) {
+			/*
+			 * The strings differ in more than just truncation
+			 * because the parts after the truncation mark don't
+			 * match up (even allowing for the possible extra
+			 * quotatation mark in the second string).
+			 */
+			dapdebug('FALSE (after mismatch)');
+			return (false);
+		}
+
+		/*
+		 * Both strings have truncations, and they're identical except
+		 * for the cases described above that we explicitly want to
+		 * ignore.
+		 */
+		dapdebug('TRUE');
+		this.vsCounterBump(reason);
+		return (true);
+	}
+
+	/*
+	 * The second string does not have a truncation.  Similar to the above,
+	 * we'll first check everything up to the truncation mark in the first
+	 * string.
+	 */
+	mod_assertplus.equal(-1, q);
+	v2before = value2.substr(0, p);
+	if (v1before != v2before) {
+		/*
+		 * The strings don't match up even before we get to the
+		 * truncation marker.
+		 */
+		return (false);
+	}
+
+	/*
+	 * Now check that the second string ends with the same substring that
+	 * the first string contains after the "[...]".
+	 */
+	q = value2.length - v1after.length;
+	v2after = value2.substr(q);
+	if (v1after != v2after) {
+		/*
+		 * The strings differ after the truncation marker.
+		 */
+		return (false);
+	}
+
+	/*
+	 * At this point, we've accounted for the parts of the second string
+	 * that are logically before and after the "[...]" marker.  As long as
+	 * that middle part has no more characters than the "[...]" marker, we
+	 * can say that these strings are logically the same.
+	 */
+	v2middle = value2.substr(p, value2.length - p - v2after.length);
+	if (v2middle.length > '[...]'.length + 1) {
+		return (false);
+	}
+
+	this.vsCounterBump('unnecessary_truncation_' + v2middle.length);
+	return (true);
 };
 
 function DiffStreamSerializer()
