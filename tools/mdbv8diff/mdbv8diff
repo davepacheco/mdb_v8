@@ -382,8 +382,25 @@ DiffStream.prototype.ignoreDiff = function (value1, value2)
 
 	/*
 	 * Check for changes in string truncation.
+	 *
+	 * The implementation of this function is not symmetric.  It checks
+	 * whether the second string appears to be a "less truncated" version of
+	 * the first one.  In most cases, it's the older output that's more
+	 * truncated than the second, so that's fine.  (For all the specific
+	 * cases, see the comment on differOnlyInTruncation().)  However, for
+	 * external ASCII strings, the new code incorporates a truncation marker
+	 * where the old code didn't, so we also check the reverse order.
+	 *
+	 * This is a little bit of a hack in that this function was initially
+	 * written for those first cases, and it was only later discovered that
+	 * it would mostly handle the second.
 	 */
-	return (this.differOnlyInTruncation(value1, value2));
+	if (this.differOnlyInTruncation(value1, value2, '')) {
+		return (true);
+	}
+
+	return (this.differOnlyInTruncation(
+	    value2, value1, 'reverse_'));
 };
 
 /*
@@ -410,7 +427,8 @@ DiffStream.prototype.ignoreDiff = function (value1, value2)
  * themselves truncated.  If we start seeing those, we'll have to generalize
  * this or consider an alternative approach.
  */
-DiffStream.prototype.differOnlyInTruncation = function (value1, value2)
+DiffStream.prototype.differOnlyInTruncation = function (value1, value2,
+    base_counter)
 {
 	var p, q, reason;
 	var v1before, v1after;
@@ -418,7 +436,7 @@ DiffStream.prototype.differOnlyInTruncation = function (value1, value2)
 
 	/* XXX dap */
 	function dapdebug(msg) {
-		if (value1.indexOf('88d2fdc9') == -1)
+		if (value1.indexOf(' * The `punycode') == -1)
 			return;
 
 		console.error('dap: %s', msg);
@@ -499,7 +517,7 @@ DiffStream.prototype.differOnlyInTruncation = function (value1, value2)
 		 * ignore.
 		 */
 		dapdebug('TRUE');
-		this.vsCounterBump(reason);
+		this.vsCounterBump(base_counter + reason);
 		return (true);
 	}
 
@@ -542,7 +560,8 @@ DiffStream.prototype.differOnlyInTruncation = function (value1, value2)
 		return (false);
 	}
 
-	this.vsCounterBump('unnecessary_truncation_' + v2middle.length);
+	this.vsCounterBump(base_counter +
+	    'unnecessary_truncation_' + v2middle.length);
 	return (true);
 };
 
