@@ -332,7 +332,7 @@ DiffStream.prototype.ignoreAddress = function (addr)
 
 DiffStream.prototype.ignoreDiff = function (value1, value2)
 {
-	var noquotes;
+	var fixed;
 
 	/*
 	 * This function has a lot of regular expressions that confuse jsstyle.
@@ -353,8 +353,8 @@ DiffStream.prototype.ignoreDiff = function (value1, value2)
 	    /<sliced string \(failed to read offset\)/.test(value1) ||
 	    /<sliced string \(failed to read length\)/.test(value1) ||
 	    /<external two-byte string>/.test(value1) ||
-	    /<external string (failed to read ExternalString data)>/.test(
-	    value1)) {
+	    /<external string \(failed to read node external pointer /.
+	    test(value1)) {
 		if (/<string \(failed to read cons ptrs\)>/.test(value2) ||
 		    /<string \(failed to load string\)>/.test(value2) ||
 		    /<string \(failed to read offset\)>/.test(value2) ||
@@ -372,20 +372,40 @@ DiffStream.prototype.ignoreDiff = function (value1, value2)
 	}
 
 	/*
+	 * The following two checks build on each other.  Do not change the
+	 * order without reading the code carefully.
+	 */
+	fixed = value1.replace(
+	    /<sliced string \(failed to read parent type\)>/,
+	    '<sliced string (failed to load parent)>');
+	if (fixed != value1 && value2 == fixed) {
+		this.vsCounterBump('sliced_parent');
+		return (true);
+	}
+
+	fixed = fixed.replace(
+	    /<sliced string \(failed to load parent\)>/,
+	    '"<sliced string (failed to load parent)>"');
+	if (fixed != value1 && value2 == fixed) {
+		this.vsCounterBump('sliced_parent_quoted');
+		return (true);
+	}
+
+	/*
 	 * Some of those differences just relate to quoting.
 	 */
-	noquotes = value2.replace(
+	fixed = value2.replace(
 	    /"<sliced string \(parent is not a sequential string\)>"/,
 	    '<sliced string (parent is not a sequential string)>');
-	if (noquotes != value2 && value1 == noquotes) {
+	if (fixed != value2 && value1 == fixed) {
 		this.vsCounterBump('proper_quoting');
 	    	return (true);
 	}
 
-	noquotes = value2.replace(
+	fixed = value2.replace(
 	    /"<external two-byte string>"/,
 	    '<external two-byte string>');
-	if (noquotes != value2 && value1 == noquotes) {
+	if (fixed != value2 && value1 == fixed) {
 		this.vsCounterBump('proper_quoting');
 	    	return (true);
 	}
