@@ -533,10 +533,10 @@ DiffStream.prototype.differOnlyInTruncation = function (value1, value2)
 	v1before = value1.substr(0, p);
 	v1after = value1.substr(p + '[...]'.length);
 
-	if (q != -1 && (q == p || q == p + 1)) {
+	if (q != -1 && (q == p || q == p + 1 || q == p + 2)) {
 		/*
-		 * Both strings have a truncation marker, and they're either at
-		 * the same position or off-by-one.  They must represent the
+		 * Both strings have a truncation marker, and they're within 2
+		 * characters of the same position.  They must represent the
 		 * same truncation.
 		 *
 		 * We basically want to compare what's before and after the
@@ -544,20 +544,17 @@ DiffStream.prototype.differOnlyInTruncation = function (value1, value2)
 		 * easier to break these checks out separately.
 		 *
 		 * First, compare the substrings before the "[...]" marker.
-		 * Remember, the second substring may have an extra character,
-		 * in which case we'll ignore it.
+		 * Remember, the second substring may have an extra character or
+		 * two, in which case we'll ignore it.
 		 */
-		v2before = value2.substr(0, q);
-		if (v2before.length == v1before.length + 1) {
-			v2before = value2.substr(0, q - 1);
-		}
+		v2before = value2.substr(0, p);
 
 		if (v1before != v2before) {
 			/*
 			 * The strings differ in more than just truncation
 			 * because the parts before the truncation mark don't
 			 * match up (even allowing for the possible extra
-			 * character in the second string).
+			 * characters in the second string).
 			 */
 			return (false);
 		}
