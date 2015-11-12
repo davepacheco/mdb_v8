@@ -315,12 +315,24 @@ DiffStream.prototype.ignoreAddress = function (addr)
 	case '827b6d4d':
 	case '88df1c99':
 		/*
-		 * 827b6d4d ran into a now-fixed bug in read_heap_dict() that
-		 * would emit a bogus property.  827b6d4d refers to 88df1c99, so
-		 * its output has the same problem.
+		 * In previous versions of mdb_v8, 827b6d4d ran into a now-fixed
+		 * bug in read_heap_dict() that would emit a bogus property.
+		 * 827b6d4d refers to 88df1c99, so its output has the same
+		 * problem.
 		 */
 		ignore = true;
 		this.vsCounterBump('garbage_read_heap_dict');
+		break;
+
+	case 'b44f2651':
+		/*
+		 * b44f2651 runs into mdb_v8 issue #49.  It's broken in older
+		 * code, and it's broken in newer code, but the failure mode is
+		 * slightly different, so it shows up spuriously in the diff.
+		 * Ignore it.
+		 */
+		ignore = true;
+		this.vsCounterBump('issue-49');
 		break;
 
 	default:
