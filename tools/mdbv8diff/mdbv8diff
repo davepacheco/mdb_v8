@@ -62,6 +62,15 @@ function main()
 			return;
 		throw (err);
 	});
+
+	diff.on('warn', function (context, kind, error) {
+		mod_cmdutil.warn(error.message);
+		console.error('    at ', context.label());
+	});
+
+	diff.on('end', function () {
+		diff.vsDumpCounters(process.stderr);
+	});
 }
 
 /*
@@ -323,7 +332,7 @@ DiffStream.prototype.ignoreAddress = function (addr)
 
 DiffStream.prototype.ignoreDiff = function (value1, value2)
 {
-	var p;
+	var p, q, common;
 
 	/*
 	 * This function has a lot of regular expressions that confuse jsstyle.
@@ -373,13 +382,29 @@ DiffStream.prototype.ignoreDiff = function (value1, value2)
 
 	/*
 	 * In some cases, the old code would truncate strings 1 byte before
-	 * necessary.
+	 * necessary or truncate strings where it wasn't quite necessary.
 	 */
-	p = value2.indexOf('[...]');
-	if (/\[...\]/.test(value1) && p != -1 &&
-	    value1 == value2.substr(0, p - 1) + value2.substr(p)) {
-		this.vsCounterBump('accurate_truncation');
-		return (true);
+	p = value1.indexOf('[...]');
+	q = value2.indexOf('[...]');
+	if (p != -1) {
+		if (q != -1 &&
+		    value1 == value2.substr(0, q - 1) + value2.substr(q)) {
+			/* Both truncated, but one has an extra character. */
+			this.vsCounterBump('accurate_truncation');
+			return (true);
+		}
+
+		if (q == -1 &&
+		    value1.substr(0, p) == value2.substr(0, p) &&
+		    value1.substr(p + '[...]'.length) ==
+		    value2.substr(p + '[...]'.length + 1)) {
+			/*
+			 * Old version truncated, second is complete, but only
+			 * has one extra character.
+			 */
+			this.vsCounterBump('unnecessary_truncation');
+			return (true);
+		}
 	}
 
 	/* END JSSTYLED */
