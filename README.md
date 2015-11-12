@@ -61,9 +61,7 @@ This one-liner will get you the latest 32-bit binary:
     $ mget -O $(mget -q /Joyent_Dev/public/mdb_v8/latest)/mdb_v8_ia32.so
 
 
-## Design and implementation notes
-
-### Design constraints
+## Design notes
 
 An important design constraint on this tool is that it should not rely on
 assistance from the JavaScript runtime environment (i.e., V8) to debug Node.js
@@ -93,7 +91,8 @@ Environments](https://queue.acm.org/detail.cfm?id=2039361) outlines the history
 and motivation for postmortem debugging and the challenges underlying postmortem
 debugging in higher-level languages.
 
-### Implementation notes
+
+## Implementation notes
 
 We built this tool on mdb for two reasons:
 
