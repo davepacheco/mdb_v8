@@ -518,6 +518,7 @@ v8string_write_sizecheck(v8string_write_t *writep)
 	assert(writep->v8sw_nreadchars < writep->v8sw_slicelen);
 	noutbytes = 0;
 	nreadchars = 0;
+	firstcharbytes = 0;
 	while (i < writep->v8sw_chunksz &&
 	    writep->v8sw_nreadchars + nreadchars < writep->v8sw_slicelen) {
 		if ((writep->v8sw_v8flags & JSSTR_ISASCII) != 0) {

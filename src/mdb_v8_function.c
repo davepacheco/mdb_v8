@@ -317,7 +317,7 @@ v8funcinfo_funcname(v8funcinfo_t *fip, mdbv8_strbuf_t *strb,
     mdbv8_strappend_flags_t flags)
 {
 	v8string_t *strp;
-	int rv;
+	int rv = 0;
 
 	/*
 	 * First, try to load the proper function name.  If that works, we're
@@ -440,6 +440,7 @@ v8funcinfo_definition_location(v8funcinfo_t *fip, mdbv8_strbuf_t *strb,
 	} else if (tokpos <= data[0]) {
 		mdbv8_strbuf_sprintf(strb, "line 1");
 	} else {
+		i = 0;
 		while (upper >= 1) {
 			i = (lower + upper) >> 1;
 			if (tokpos > data[i])
