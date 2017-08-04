@@ -5,7 +5,7 @@
  */
 
 /*
- * Copyright (c) 2016, Joyent, Inc.
+ * Copyright (c) 2017, Joyent, Inc.
  */
 
 /*
@@ -4645,6 +4645,7 @@ typedef struct findjsobjects_state {
 	boolean_t fjs_initialized;
 	boolean_t fjs_marking;
 	boolean_t fjs_referred;
+	boolean_t fjs_finished;
 	avl_tree_t fjs_tree;
 	avl_tree_t fjs_referents;
 	avl_tree_t fjs_funcinfo;
@@ -5476,6 +5477,8 @@ findjsobjects_run(findjsobjects_state_t *fjs)
 			sorted[nobjs - 1]->fjso_next = NULL;
 		}
 
+		fjs->fjs_finished = B_TRUE;
+
 		v8_silent--;
 
 		if (fjs->fjs_verbose) {
@@ -5533,6 +5536,12 @@ dcmd_findjsobjects(uintptr_t addr,
 
 	if (findjsobjects_run(fjs) != 0)
 		return (DCMD_ERR);
+
+	if (!fjs->fjs_finished) {
+		mdb_warn("error: previous findjsobjects "
+		    "heap scan did not complete.\n");
+		return (DCMD_ERR);
+	}
 
 	if (listlike && !(flags & DCMD_ADDRSPEC)) {
 		if (propname != NULL || constructor != NULL ||
@@ -6100,6 +6109,12 @@ dcmd_jsfunctions(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 	if (listlike && !(flags & DCMD_ADDRSPEC) &&
 	    (name != NULL || filename != NULL || instr != 0)) {
 		mdb_warn("cannot specify -l with -n, -f, or -x\n");
+		return (DCMD_ERR);
+	}
+
+	if (!fjs->fjs_finished) {
+		mdb_warn("error: previous findjsobjects "
+		    "heap scan did not complete.\n");
 		return (DCMD_ERR);
 	}
 
