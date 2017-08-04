@@ -64,6 +64,13 @@ struct v8scopeinfo {
 	size_t		v8si_nelts;	/* count of slots */
 };
 
+struct v8funcbind {
+	uintptr_t	v8fb_func;	/* address of bound function */
+	uintptr_t	v8fb_memflags;	/* memory allocation flags */
+	size_t		v8fb_nbindings;	/* count of bound variables */
+	uintptr_t	*v8fb_bindings;	/* array of bound values */
+};
+
 /*
  * This structure and array describe the statically-defined fields stored inside
  * each Context.  This is mainly useful for debugger tools that want to dump
@@ -238,6 +245,58 @@ v8funcinfo_t *
 v8function_funcinfo(v8function_t *funcp, int memflags)
 {
 	return (v8funcinfo_load(funcp->v8func_shared, memflags));
+}
+
+
+/*
+ * Given a function, load information about its binding.  This function returns
+ * non-zero if we failed to determine whether this function had a binding or we
+ * determined that it did but failed to load the binding details.  This function
+ * may return 0 with a NULL value in "fbpp" if "funcp" was not a bound function.
+ */
+int
+v8function_funcbind(v8function_t *funcp, int memflags, v8funcbind_t **fbpp)
+{
+	uintptr_t bindingsp;
+	v8funcbind_t *fbp;
+
+	/*
+	 * XXX can we tell crisply that this is not a bound function?
+	 */
+
+	if (read_heap_ptr(&bindingsp, funcp->v8func_addr,
+	    V8_OFF_JSFUNCTION_LITERALS_OR_BINDINGS) != 0) {
+		v8_warn("%p: failed to load bindings\n",
+		    funcp->v8func_addr);
+		return (-1);
+	}
+
+	if ((fbp = mdb_zalloc(sizeof (*fbp), memflags)) == NULL) {
+		return (-1);
+	}
+
+	fbp->v8fb_func = funcp->v8func_addr;
+	fbp->v8fb_memflags = memflags;
+	if (read_heap_array(bindingsp, &fbp->v8fb_bindings,
+    	    &fbp->v8fb_nbindings, memflags) != 0) {
+		v8_warn("%p: failed to load bindings array\n",
+		    funcp->v8func_addr);
+		goto err;
+	}
+
+	if (fbp->v8fb_nbindings < 2) {
+		v8_warn("%p: bindings array is too short\n",
+		    funcp->v8func_addr);
+		goto err;
+	}
+
+	*fbpp = fbp;
+	return (0);
+
+err:
+	v8funcbind_free(fbp);
+	*fbpp = NULL;
+	return (-1);
 }
 
 
@@ -900,7 +959,7 @@ v8scopeinfo_iter_vars(v8scopeinfo_t *sip,
 	nvars = v8scopeinfo_vartype_nvars(sip, scopevartype);
 
 	/*
-	 * Skip to the start of the ScopeInfo's dynamic part. See mdb_v8_db.h
+	 * Skip to the start of the ScopeInfo's dynamic part. See mdb_v8_dbg.h
 	 * for more details on the layout of ScopeInfo objects.
 	 */
 	nskip = V8_SCOPEINFO_IDX_FIRST_VARS;
@@ -998,4 +1057,97 @@ v8scopeinfo_vartype_lookup(v8scopeinfo_vartype_t scopevartype)
 	}
 
 	return (NULL);
+}
+
+
+/*
+ * Bound functions
+ *
+ * Bound functions are functions returned from JavaScript's Function.bind()
+ * method.  A bound function essentially wraps some other function, but
+ * overrides the "this" and any number of initial arguments:
+ *
+ *     function myFunc(arg1, arg2) { ... }
+ *
+ *     var newctx = {};
+ *     var bound = myFunc.bind(newctx, 'hello');
+ *
+ * In this example:
+ *
+ *     "bound" is the bound function.  Invoking it invokes "myFunc".
+ *     "myFunc" is the target function.
+ *     "newctx" is the value of "this" inside the "myFunc" invocation.
+ *
+ * This is implemented in V8 by storing an array of bindings on "bound" that
+ * contains the target function, followed by the "this" value, followed by any
+ * other arguments that were specified.  We don't expose the array of bindings
+ * directly, but rather we expose getters for the user-visible parts of the
+ * abstraction (the target, the "this" value, and the arguments).
+ */
+
+/*
+ * Returns the target of this bound function (i.e., the function that this
+ * function wraps).
+ */
+uintptr_t
+v8funcbind_target(v8funcbind_t *fbp)
+{
+	assert(fbp->v8fb_nbindings > 0);
+	return (fbp->v8fb_bindings[0]);
+}
+
+/*
+ * Returns the value of "this" specified by this binding.
+ */
+uintptr_t
+v8funcbind_this(v8funcbind_t *fbp)
+{
+	assert(fbp->v8fb_nbindings > 1);
+	return (fbp->v8fb_bindings[1]);
+}
+
+/*
+ * Returns the number of arguments specified by this binding.
+ */
+size_t
+v8funcbind_nargs(v8funcbind_t *fbp)
+{
+	assert(fbp->v8fb_nbindings >= 2);
+	return (fbp->v8fb_nbindings - 2);
+}
+
+/*
+ * Iterates the arguments specified by this binding.
+ */
+int
+v8funcbind_iter_args(v8funcbind_t *fbp,
+    int (*func)(v8funcbind_t *, uint_t, uintptr_t, void *), void *arg)
+{
+	size_t i, nargs;
+	int rv = 0;
+
+	assert(fbp->v8fb_nbindings >= 2);
+	nargs = v8funcbind_nargs(fbp);
+	for (i = 0; i < nargs; i++) {
+		rv = func(fbp, i, fbp->v8fb_bindings[i + 2], arg);
+		if (rv != 0) {
+			break;
+		}
+	}
+
+	return (rv);
+}
+
+/*
+ * Free a v8funcbind_t object.
+ * See the patterns in mdb_v8_dbg.h for interface details.
+ */
+void
+v8funcbind_free(v8funcbind_t *fbp)
+{
+	if (fbp == NULL) {
+		return;
+	}
+
+	maybefree(fbp, sizeof (*fbp), fbp->v8fb_memflags);
 }

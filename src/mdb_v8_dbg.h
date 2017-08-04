@@ -99,6 +99,7 @@ typedef struct v8fixedarray v8fixedarray_t;
 typedef struct v8string v8string_t;
 
 typedef struct v8function v8function_t;
+typedef struct v8funcbind v8funcbind_t;
 typedef struct v8code v8code_t;
 typedef struct v8funcinfo v8funcinfo_t;
 typedef struct v8context v8context_t;
@@ -232,6 +233,7 @@ void v8function_free(v8function_t *);
 v8context_t *v8function_context(v8function_t *, int);
 v8scopeinfo_t *v8function_scopeinfo(v8function_t *, int);
 v8funcinfo_t *v8function_funcinfo(v8function_t *, int);
+int v8function_funcbind(v8function_t *, int, v8funcbind_t **);
 
 /*
  * Working with SharedFunctionInfo objects.
@@ -261,7 +263,6 @@ void v8code_free(v8code_t *);
 uintptr_t v8code_addr(v8code_t *);
 uintptr_t v8code_instructions_start(v8code_t *);
 uintptr_t v8code_instructions_size(v8code_t *);
-
 
 /*
  * Working with Contexts
@@ -297,5 +298,17 @@ int v8scopeinfo_iter_vars(v8scopeinfo_t *, v8scopeinfo_vartype_t,
     int (*)(v8scopeinfo_t *, v8scopeinfo_var_t *, void *), void *);
 size_t v8scopeinfo_var_idx(v8scopeinfo_t *, v8scopeinfo_var_t *);
 uintptr_t v8scopeinfo_var_name(v8scopeinfo_t *, v8scopeinfo_var_t *);
+
+/*
+ * Working with bound functions.  These are not represented with a distinct
+ * C++ class in V8.  To load information about a bound function, you start with
+ * the function itself and use v8function_funcbind().
+ */
+uintptr_t v8funcbind_target(v8funcbind_t *);
+uintptr_t v8funcbind_this(v8funcbind_t *);
+size_t v8funcbind_nargs(v8funcbind_t *);
+int v8funcbind_iter_args(v8funcbind_t *,
+    int (*)(v8funcbind_t *, uint_t, uintptr_t, void *), void *);
+void v8funcbind_free(v8funcbind_t *);
 
 #endif	/* _MDBV8DBG_H */

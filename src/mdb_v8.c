@@ -194,6 +194,7 @@ ssize_t V8_OFF_JSARRAY_LENGTH;
 ssize_t V8_OFF_JSDATE_VALUE;
 ssize_t V8_OFF_JSREGEXP_DATA;
 ssize_t V8_OFF_JSFUNCTION_CONTEXT;
+ssize_t V8_OFF_JSFUNCTION_LITERALS_OR_BINDINGS;
 ssize_t V8_OFF_JSFUNCTION_SHARED;
 ssize_t V8_OFF_JSOBJECT_ELEMENTS;
 ssize_t V8_OFF_JSOBJECT_PROPERTIES;
@@ -430,6 +431,8 @@ static v8_offset_t v8_offsets[] = {
 	    "JSDate", "value", B_TRUE },
 	{ &V8_OFF_JSFUNCTION_CONTEXT,
 	    "JSFunction", "context", B_TRUE },
+	{ &V8_OFF_JSFUNCTION_LITERALS_OR_BINDINGS,
+	    "JSFunction", "literals_or_bindings" },
 	{ &V8_OFF_JSFUNCTION_SHARED,
 	    "JSFunction", "shared" },
 	{ &V8_OFF_JSOBJECT_ELEMENTS,
@@ -5795,6 +5798,78 @@ jsclosure_iter_var(v8scopeinfo_t *sip, v8scopeinfo_var_t *sivp, void *arg)
 
 /* ARGSUSED */
 static int
+jsfunction_bound_arg(v8funcbind_t *fbp, uint_t which, uintptr_t value,
+    void *unused)
+{
+	char buf[80];
+	size_t len = sizeof (buf);
+	char *bufp;
+
+	bufp = buf;
+	(void) obj_jstype(value, &bufp, &len, NULL);
+
+	mdb_printf("      arg%d  = %p (%s)\n", which, value, buf);
+	return (0);
+}
+
+/* ARGSUSED */
+static int
+dcmd_jsfunction(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
+{
+	v8function_t *fp = NULL;
+	v8funcbind_t *fbp = NULL;
+	v8funcinfo_t *fip = NULL;
+	mdbv8_strbuf_t *strb = NULL;
+	int memflags = UM_SLEEP | UM_GC;
+	int rv = DCMD_ERR;
+	char buf[80];
+	size_t len = sizeof (buf);
+	char *bufp;
+
+	v8_warnings++;
+	if ((fp = v8function_load(addr, memflags)) == NULL ||
+	    (fip = v8function_funcinfo(fp, memflags)) == NULL ||
+	    (strb = mdbv8_strbuf_alloc(512, memflags)) == NULL) {
+		goto out;
+	}
+
+	mdbv8_strbuf_sprintf(strb, "function: ");
+
+	if (v8funcinfo_funcname(fip, strb, MSF_ASCIIONLY) != 0 ||
+	    v8function_funcbind(fp, memflags, &fbp) != 0) {
+		goto out;
+	}
+
+	mdbv8_strbuf_sprintf(strb, "\ndefined at ");
+	(void) v8funcinfo_scriptpath(fip, strb, MSF_ASCIIONLY);
+	mdbv8_strbuf_sprintf(strb, " ");
+	(void) v8funcinfo_definition_location(fip, strb, MSF_ASCIIONLY);
+	mdb_printf("%s\n", mdbv8_strbuf_tocstr(strb));
+
+	if (fbp != NULL) {
+		uintptr_t thisp;
+
+		mdb_printf("bound function that wraps: %p\n",
+		    v8funcbind_target(fbp));
+		thisp = v8funcbind_this(fbp);
+		bufp = buf;
+		(void) obj_jstype(thisp, &bufp, &len, NULL);
+		mdb_printf("with \"this\" = %p (%s)\n", thisp, buf);
+		rv = v8funcbind_iter_args(fbp, jsfunction_bound_arg,
+		    NULL);
+	} else {
+		rv = DCMD_OK;
+	}
+
+out:
+	v8funcbind_free(fbp);
+	v8funcinfo_free(fip);
+	v8function_free(fp);
+	v8_warnings--;
+	return (rv);
+}
+/* ARGSUSED */
+static int
 dcmd_jsclosure(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 {
 	v8function_t *funcp;
@@ -6649,6 +6724,8 @@ static const mdb_dcmd_t v8_mdb_dcmds[] = {
 		dcmd_jsconstructor },
 	{ "jsframe", ":[-aiv] [-f function] [-p property] [-n numlines]",
 		"summarize a JavaScript stack frame", dcmd_jsframe },
+	{ "jsfunction", ":", "print information about a function",
+		dcmd_jsfunction },
 	{ "jsprint", ":[-ab] [-d depth] [member]", "print a JavaScript object",
 		dcmd_jsprint },
 	{ "jssource", ":[-n numlines]",
