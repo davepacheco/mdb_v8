@@ -5,7 +5,7 @@
  */
 
 /*
- * Copyright (c) 2015, Joyent, Inc.
+ * Copyright (c) 2017, Joyent, Inc.
  */
 
 /*
@@ -257,12 +257,39 @@ v8function_funcinfo(v8function_t *funcp, int memflags)
 int
 v8function_funcbind(v8function_t *funcp, int memflags, v8funcbind_t **fbpp)
 {
-	uintptr_t bindingsp;
+	uintptr_t hints, bindingsp;
 	v8funcbind_t *fbp;
+	v8funcinfo_t *fip;
+	int err;
+
+	*fbpp = NULL;
 
 	/*
-	 * XXX can we tell crisply that this is not a bound function?
+	 * To determine whether this is even a bound function, we need to look
+	 * at the compiler hints hanging off the SharedFunctionInfo.
 	 */
+	fip = v8function_funcinfo(funcp, memflags);
+	if (fip == NULL) {
+		return (-1);
+	}
+
+	/*
+	 * XXX working here:
+	 * - free the funcinfo immediately after this read_heap_ptr
+	 * - finish making this code work
+	 */
+	err = read_heap_ptr(&hints, fip->v8fi_addr,
+	    V8_OFF_SHAREDFUNCTIONINFO_COMPILER_HINTS);
+	v8funcinfo_free(fip);
+
+	if (err != 0) {
+		return (-1);
+	}
+
+	if (!V8_HINT_BOUND(hints)) {
+		v8funcinfo_free(fip);
+		return (0);
+	}
 
 	if (read_heap_ptr(&bindingsp, funcp->v8func_addr,
 	    V8_OFF_JSFUNCTION_LITERALS_OR_BINDINGS) != 0) {
@@ -295,7 +322,6 @@ v8function_funcbind(v8function_t *funcp, int memflags, v8funcbind_t **fbpp)
 
 err:
 	v8funcbind_free(fbp);
-	*fbpp = NULL;
 	return (-1);
 }
 

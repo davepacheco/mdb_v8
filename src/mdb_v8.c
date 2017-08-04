@@ -125,6 +125,7 @@ intptr_t V8_SmiTagMask;
 intptr_t V8_SmiValueShift;
 intptr_t V8_SmiShiftSize;
 intptr_t V8_PointerSizeLog2;
+intptr_t V8_CompilerHints_BoundFunction;
 
 static intptr_t	V8_ISSHARED_SHIFT;
 static intptr_t	V8_DICT_SHIFT;
@@ -219,6 +220,7 @@ ssize_t V8_OFF_SEQASCIISTR_CHARS;
 ssize_t V8_OFF_SEQONEBYTESTR_CHARS;
 ssize_t V8_OFF_SEQTWOBYTESTR_CHARS;
 ssize_t V8_OFF_SHAREDFUNCTIONINFO_CODE;
+ssize_t V8_OFF_SHAREDFUNCTIONINFO_COMPILER_HINTS;
 ssize_t V8_OFF_SHAREDFUNCTIONINFO_SCOPE_INFO;
 ssize_t V8_OFF_SHAREDFUNCTIONINFO_END_POSITION;
 ssize_t V8_OFF_SHAREDFUNCTIONINFO_FUNCTION_TOKEN_POSITION;
@@ -318,6 +320,10 @@ static v8_constant_t v8_constants[] = {
 	    V8_CONSTANT_FALLBACK(0, 0), 0 },
 #endif
 	{ &V8_PointerSizeLog2,		"v8dbg_PointerSizeLog2"		},
+
+	/* XXX version right here? */
+	{ &V8_CompilerHints_BoundFunction, "v8dbg_CompilerHints_BoundFunction",
+	    V8_CONSTANT_FALLBACK(3, 14), 11 },
 
 	{ &V8_DICT_SHIFT,		"v8dbg_bit_field3_dictionary_map_shift",
 	    V8_CONSTANT_FALLBACK(3, 13), 24 },
@@ -497,6 +503,8 @@ static v8_offset_t v8_offsets[] = {
 	    "SeqTwoByteString", "chars", B_TRUE },
 	{ &V8_OFF_SHAREDFUNCTIONINFO_CODE,
 	    "SharedFunctionInfo", "code" },
+	{ &V8_OFF_SHAREDFUNCTIONINFO_COMPILER_HINTS,
+	    "SharedFunctionInfo", "compiler_hints" },
 	{ &V8_OFF_SHAREDFUNCTIONINFO_END_POSITION,
 	    "SharedFunctionInfo", "end_position" },
 	{ &V8_OFF_SHAREDFUNCTIONINFO_FUNCTION_TOKEN_POSITION,

@@ -66,6 +66,7 @@ extern intptr_t V8_SeqStringTag;
 extern intptr_t V8_ConsStringTag;
 extern intptr_t V8_SlicedStringTag;
 extern intptr_t V8_ExternalStringTag;
+extern intptr_t V8_CompilerHints_BoundFunction;
 
 extern ssize_t V8_OFF_CODE_INSTRUCTION_SIZE;
 extern ssize_t V8_OFF_CODE_INSTRUCTION_START;
@@ -83,6 +84,7 @@ extern ssize_t V8_OFF_SEQASCIISTR_CHARS;
 extern ssize_t V8_OFF_SEQONEBYTESTR_CHARS;
 extern ssize_t V8_OFF_SEQTWOBYTESTR_CHARS;
 extern ssize_t V8_OFF_SHAREDFUNCTIONINFO_CODE;
+extern ssize_t V8_OFF_SHAREDFUNCTIONINFO_COMPILER_HINTS;
 extern ssize_t V8_OFF_SHAREDFUNCTIONINFO_SCOPE_INFO;
 extern ssize_t V8_OFF_SHAREDFUNCTIONINFO_INFERRED_NAME;
 extern ssize_t V8_OFF_SHAREDFUNCTIONINFO_IDENTIFIER;
