@@ -37,6 +37,8 @@ MDBV8_SONAME	 = mdb_v8.so
 # Tag binaries with "dev" or "release".  This should be a valid C string.
 MDBV8_VERS_TAG	 = "dev"
 
+LIBPMX_DIR	 = /home/dap/pmx
+
 
 #
 # CONFIGURATION FOR DEVELOPERS
@@ -49,6 +51,7 @@ MDBV8_VERS_TAG	 = "dev"
 MDBV8_SOURCES		 = \
     mdb_v8.c \
     mdb_v8_cfg.c \
+    mdb_v8_export.c \
     mdb_v8_function.c \
     mdb_v8_strbuf.c \
     mdb_v8_string.c \
@@ -66,6 +69,7 @@ CFLAGS			+= -Werror -Wall -Wextra -fPIC -fno-omit-frame-pointer
 CFLAGS			+= -g -O
 
 CPPFLAGS		+= -DMDBV8_VERS_TAG='$(MDBV8_VERS_TAG)'
+CPPFLAGS		+= -I$(LIBPMX_DIR)/include
 # XXX These should be removed.
 CFLAGS			+= -Wno-unused-parameter		\
 			   -Wno-missing-field-initializers	\
@@ -74,7 +78,7 @@ CFLAGS			+= -Wno-unused-parameter		\
 CFLAGS			+= -Wno-unknown-pragmas
 
 # Linker flags (including dependent libraries)
-LDFLAGS			+= -lproc
+LDFLAGS			+= -lproc -lpmx
 SOFLAGS			 = -Wl,-soname=$(MDBV8_SONAME)
 
 # Path to cstyle.pl tool
@@ -107,10 +111,12 @@ CPPFLAGS		+= -I$(LIBAVL_SUBMODULE)/include
 
 $(LIBAVL_amd64):	CFLAGS_ARCH += -m64
 $(MDBV8_TARGETS_amd64):	CFLAGS	+= -m64
+$(MDBV8_TARGETS_amd64):	LDFLAGS	+= -L$(LIBPMX_DIR)/build/amd64
 $(MDBV8_TARGETS_amd64):	SOFLAGS	+= -m64
 
 $(LIBAVL_ia32):		CFLAGS_ARCH += -m32
 $(MDBV8_TARGETS_ia32):	CFLAGS += -m32
+$(MDBV8_TARGETS_ia32):	LDFLAGS	+= -L$(LIBPMX_DIR)/build/ia32
 $(MDBV8_TARGETS_ia32):	SOFLAGS += -m32
 
 #

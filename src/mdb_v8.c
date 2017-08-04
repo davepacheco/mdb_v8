@@ -31,6 +31,8 @@
 #include <sys/avl.h>
 #include <alloca.h>
 
+#include <pmx/pmx.h>
+
 #include "v8dbg.h"
 #include "v8cfg.h"
 #include "mdb_v8_version.h"
@@ -1520,13 +1522,7 @@ conf_field_lookup(const char *klass, const char *field)
  * something of a kludge.  These interfaces need some refactoring to look more
  * like the interfaces in mdb_v8_dbg.h.
  */
-typedef struct {
-	boolean_t v8v_isboxeddouble;
-	union {
-		double		v8vu_double;
-		uintptr_t	v8vu_addr;
-	} v8v_u;
-} v8propvalue_t;
+/* See the definition of v8propvalue_t in src/mdb_v8_impl.h. */
 
 /*
  * Initialize a v8propvalue_t to represent a tagged value represented by "addr".
@@ -1604,7 +1600,7 @@ read_heap_smi(uintptr_t *valp, uintptr_t addr, ssize_t off)
 	return (0);
 }
 
-static int
+int
 read_heap_double(double *valp, uintptr_t addr, ssize_t off)
 {
 	if (mdb_vread(valp, sizeof (*valp), addr + off) == -1) {
@@ -5250,15 +5246,16 @@ findjsobjects_instance(findjsobjects_state_t *fjs, uintptr_t addr,
 
 /*ARGSUSED*/
 static void
-findjsobjects_match_all(findjsobjects_obj_t *obj, const char *ignored)
+findjsobjects_match_all(findjsobjects_obj_t *obj, void *ignored)
 {
 	mdb_printf("%p\n", obj->fjso_instances.fjsi_addr);
 }
 
 static void
-findjsobjects_match_propname(findjsobjects_obj_t *obj, const char *propname)
+findjsobjects_match_propname(findjsobjects_obj_t *obj, void *arg)
 {
 	findjsobjects_prop_t *prop;
+	const char *propname = arg;
 
 	for (prop = obj->fjso_props; prop != NULL; prop = prop->fjsp_next) {
 		if (strcmp(prop->fjsp_desc, propname) == 0) {
@@ -5270,16 +5267,18 @@ findjsobjects_match_propname(findjsobjects_obj_t *obj, const char *propname)
 
 static void
 findjsobjects_match_constructor(findjsobjects_obj_t *obj,
-    const char *constructor)
+    void *arg)
 {
+	const char *constructor = arg;
 	if (strcmp(constructor, obj->fjso_constructor) == 0)
 		mdb_printf("%p\n", obj->fjso_instances.fjsi_addr);
 }
 
 static void
-findjsobjects_match_kind(findjsobjects_obj_t *obj, const char *propkind)
+findjsobjects_match_kind(findjsobjects_obj_t *obj, void *arg)
 {
 	jspropinfo_t p = obj->fjso_propinfo;
+	const char *propkind = arg;
 
 	if (((p & JPI_NUMERIC) != 0 && strstr(propkind, "numeric") != NULL) ||
 	    ((p & JPI_DICT) != 0 && strstr(propkind, "dict") != NULL) ||
@@ -5301,8 +5300,8 @@ findjsobjects_match_kind(findjsobjects_obj_t *obj, const char *propkind)
 
 static int
 findjsobjects_match(findjsobjects_state_t *fjs, uintptr_t addr,
-    uint_t flags, void (*func)(findjsobjects_obj_t *, const char *),
-    const char *match)
+    uint_t flags, void (*func)(findjsobjects_obj_t *, void *),
+    void *match)
 {
 	findjsobjects_obj_t *obj;
 
@@ -5509,9 +5508,9 @@ dcmd_findjsobjects(uintptr_t addr,
 	findjsobjects_state_t *fjs = &findjsobjects_state;
 	findjsobjects_obj_t *obj;
 	boolean_t references = B_FALSE, listlike = B_FALSE;
-	const char *propname = NULL;
-	const char *constructor = NULL;
-	const char *propkind = NULL;
+	char *propname = NULL;
+	char *constructor = NULL;
+	char *propkind = NULL;
 
 	fjs->fjs_verbose = B_FALSE;
 	fjs->fjs_brk = B_FALSE;
@@ -6071,6 +6070,77 @@ dcmd_jssource(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 		jsfunc_lines(scriptp, tokpos, endpos, nlines, "%5d ");
 	mdb_printf("\n");
 	return (DCMD_OK);
+}
+
+static void
+jsexport_representative(findjsobjects_obj_t *obj, void *arg)
+{
+	pmx_stream_t *pmxp = arg;
+	findjsobjects_instance_t *inst;
+	v8propvalue_t val;
+
+	val.v8v_isboxeddouble = B_FALSE;
+	for (inst = &obj->fjso_instances; inst != NULL;
+	    inst = inst->fjsi_next) {
+		val.v8v_u.v8vu_addr = inst->fjsi_addr;
+		/* XXX */
+		(void) jsexport_value(pmxp, &val);
+	}
+}
+
+/* ARGSUSED */
+static int
+dcmd_jsexport(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
+{
+	findjsobjects_state_t *fjs = &findjsobjects_state;
+	pmx_stream_t *pmxp;
+	int rv;
+
+	if (argc != 0) {
+		mdb_warn("unexpected arguments\n");
+		return (DCMD_ERR);
+	}
+
+	pmxp = pmx_create_stream(stdout, stderr);
+	if (pmxp == NULL) {
+		mdb_warn("failed to allocate pmx stream");
+		return (DCMD_ERR);
+	}
+
+	if ((flags & DCMD_ADDRSPEC) != 0) {
+		v8propvalue_t v8prop;
+		v8prop.v8v_isboxeddouble = B_FALSE;
+		v8prop.v8v_u.v8vu_addr = addr;
+		rv = jsexport_value(pmxp, &v8prop);
+	} else if (!fjs->fjs_initialized) {
+		mdb_warn("must run ::findjsobjects first or "
+		    "provide specific address\n");
+		pmx_free(pmxp);
+		return (DCMD_ERR);
+	} else {
+		/* XXX review this */
+		pmx_emit_metadata(pmxp, "generator", "mdb_v8");
+		pmx_emit_metadata(pmxp, "generator_version", "1.0.0");
+		pmx_emit_metadata(pmxp, "version_major", "0");
+		pmx_emit_metadata(pmxp, "version_minor", "1");
+		pmx_emit_metadata(pmxp, "target_source", "synthetic");
+		rv = findjsobjects_match(fjs, addr, flags,
+		    jsexport_representative, pmxp);
+	}
+
+	if (rv != 0) {
+		mdb_warn("failed to iterate objects");
+	}
+
+	if (pmx_errno(pmxp) != PMXE_OK) {
+		mdb_warn("failed to export JSON stream");
+		if (rv == 0) {
+			rv = -1;
+		}
+	}
+
+	pmx_free(pmxp);
+	return (rv == 0 ? DCMD_OK : DCMD_ERR);
 }
 
 /* ARGSUSED */
@@ -6646,6 +6716,7 @@ static const mdb_dcmd_t v8_mdb_dcmds[] = {
 	{ "jsfunctions", "?[-X] [-s file_filter] [-n name_filter] "
 	    "[-x instr_filter]", "list JavaScript functions",
 	    dcmd_jsfunctions, dcmd_jsfunctions_help },
+	{ "jsexport", "", "generate JSON export", dcmd_jsexport },
 
 	/*
 	 * Commands to inspect V8-level state

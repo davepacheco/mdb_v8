@@ -5,7 +5,7 @@
  */
 
 /*
- * Copyright (c) 2015, Joyent, Inc.
+ * Copyright (c) 2016, Joyent, Inc.
  */
 
 /*
@@ -18,6 +18,7 @@
 #ifndef	_MDBV8IMPL_H
 #define	_MDBV8IMPL_H
 
+#include <pmx/pmx.h>
 #include <stdarg.h>
 
 /*
@@ -112,7 +113,46 @@ extern intptr_t V8_SmiTagMask;
 extern intptr_t V8_SmiValueShift;
 extern intptr_t V8_SmiShiftSize;
 
+extern intptr_t V8_TYPE_ACCESSORINFO;
+extern intptr_t V8_TYPE_ACCESSORPAIR;
+extern intptr_t V8_TYPE_EXECUTABLEACCESSORINFO;
+extern intptr_t V8_TYPE_JSOBJECT;
+extern intptr_t V8_TYPE_JSARRAY;
+extern intptr_t V8_TYPE_JSFUNCTION;
+extern intptr_t V8_TYPE_JSDATE;
+extern intptr_t V8_TYPE_JSREGEXP;
+extern intptr_t V8_TYPE_HEAPNUMBER;
+extern intptr_t V8_TYPE_MUTABLEHEAPNUMBER;
+extern intptr_t V8_TYPE_ODDBALL;
+extern intptr_t V8_TYPE_FIXEDARRAY;
+extern intptr_t V8_TYPE_MAP;
+extern intptr_t V8_TYPE_JSTYPEDARRAY;
+
+/*
+ * XXX These probably should be removed before integration because the code that
+ * uses them in mdb_v8_export.c should be commonized somewhere else.
+ */
+extern ssize_t V8_OFF_HEAPNUMBER_VALUE;
+extern ssize_t V8_OFF_ODDBALL_TO_STRING;
+int read_heap_double(double *, uintptr_t, ssize_t);
+
 /* see node_string.h */
 #define	NODE_OFF_EXTSTR_DATA		sizeof (uintptr_t)
+
+typedef struct {
+	boolean_t v8v_isboxeddouble;
+	union {
+		double		v8vu_double;
+		uintptr_t	v8vu_addr;
+	} v8v_u;
+} v8propvalue_t;
+
+
+/*
+ * JSON export implementation.  This might be better off as a first-class
+ * interface in mdb_v8_dbg.h, but libpmx is arguably the real first-class
+ * interface and these functions are just mdb_v8 glue.
+ */
+int jsexport_value(pmx_stream_t *, v8propvalue_t *);
 
 #endif	/* _MDBV8IMPL_H */
