@@ -6815,7 +6815,7 @@ static const mdb_dcmd_t v8_mdb_dcmds[] = {
 		dcmd_jsconstructor },
 	{ "jsframe", ":[-aiv] [-f function] [-p property] [-n numlines]",
 		"summarize a JavaScript stack frame", dcmd_jsframe },
-	{ "jsfunction", ":", "print information about a function",
+	{ "jsfunction", ":", "print information about a JavaScript function",
 		dcmd_jsfunction },
 	{ "jsprint", ":[-ab] [-d depth] [member]", "print a JavaScript object",
 		dcmd_jsprint },
