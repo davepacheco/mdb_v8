@@ -195,6 +195,9 @@ ssize_t V8_OFF_HEAPOBJECT_MAP;
 ssize_t V8_OFF_JSARRAY_LENGTH;
 ssize_t V8_OFF_JSDATE_VALUE;
 ssize_t V8_OFF_JSREGEXP_DATA;
+ssize_t V8_OFF_JSBOUNDFUNCTION_BOUND_ARGUMENTS;
+ssize_t V8_OFF_JSBOUNDFUNCTION_BOUND_TARGET_FUNCTION;
+ssize_t V8_OFF_JSBOUNDFUNCTION_BOUND_THIS;
 ssize_t V8_OFF_JSFUNCTION_CONTEXT;
 ssize_t V8_OFF_JSFUNCTION_LITERALS_OR_BINDINGS;
 ssize_t V8_OFF_JSFUNCTION_SHARED;
@@ -322,13 +325,6 @@ static v8_constant_t v8_constants[] = {
 #endif
 	{ &V8_PointerSizeLog2,		"v8dbg_PointerSizeLog2"		},
 
-	/* XXX version right here? */
-	/* decimal "13" is the correct offset for node v0.10.47 */
-	/* decimal "8" is the correct offset for node v0.12.16 */
-	/* decimal "10" is the correct offset for node v4.6.0 */
-	{ &V8_CompilerHints_BoundFunction, "v8dbg_CompilerHints_BoundFunction",
-	    V8_CONSTANT_FALLBACK(3, 14), 10 },
-
 	{ &V8_DICT_SHIFT,		"v8dbg_bit_field3_dictionary_map_shift",
 	    V8_CONSTANT_FALLBACK(3, 13), 24 },
 	{ &V8_DICT_PREFIX_SIZE,		"v8dbg_dict_prefix_size",
@@ -439,11 +435,22 @@ static v8_offset_t v8_offsets[] = {
 	    "JSArray", "length" },
 	{ &V8_OFF_JSDATE_VALUE,
 	    "JSDate", "value", B_TRUE },
+
+	{ &V8_OFF_JSBOUNDFUNCTION_BOUND_ARGUMENTS,
+	    "JSBoundFunction", "bound_arguments", B_FALSE,
+	    V8_CONSTANT_ADDED_SINCE(4, 9) },
+	{ &V8_OFF_JSBOUNDFUNCTION_BOUND_TARGET_FUNCTION,
+	    "JSBoundFunction", "bound_target_function", B_FALSE,
+	    V8_CONSTANT_ADDED_SINCE(4, 9) },
+	{ &V8_OFF_JSBOUNDFUNCTION_BOUND_THIS,
+	    "JSBoundFunction", "bound_this", B_FALSE,
+	    V8_CONSTANT_ADDED_SINCE(4, 9) },
+
 	{ &V8_OFF_JSFUNCTION_CONTEXT,
 	    "JSFunction", "context", B_TRUE },
-	/* XXX should be non-optional prior to Node v6 */
 	{ &V8_OFF_JSFUNCTION_LITERALS_OR_BINDINGS,
-	    "JSFunction", "literals_or_bindings", B_TRUE },
+	    "JSFunction", "literals_or_bindings", B_FALSE,
+	    V8_CONSTANT_REMOVED_SINCE(4, 9) },
 	{ &V8_OFF_JSFUNCTION_SHARED,
 	    "JSFunction", "shared" },
 	{ &V8_OFF_JSOBJECT_ELEMENTS,
@@ -651,6 +658,7 @@ static int jsobj_print_jsobject(uintptr_t, jsobj_print_t *);
 static int jsobj_print_jsarray(uintptr_t, jsobj_print_t *);
 static int jsobj_print_jstyped_array(uintptr_t, jsobj_print_t *);
 static int jsobj_print_jsfunction(uintptr_t, jsobj_print_t *);
+static int jsobj_print_jsboundfunction(uintptr_t, jsobj_print_t *);
 static int jsobj_print_jsdate(uintptr_t, jsobj_print_t *);
 static int jsobj_print_jsregexp(uintptr_t, jsobj_print_t *);
 
@@ -1088,6 +1096,34 @@ again:
 	if (V8_OFF_SHAREDFUNCTIONINFO_IDENTIFIER == -1) {
 		V8_OFF_SHAREDFUNCTIONINFO_IDENTIFIER =
 		    V8_OFF_SHAREDFUNCTIONINFO_INFERRED_NAME;
+	}
+
+	/*
+	 * The appropriate values for the "kBoundFunction" bit that lives within
+	 * the SharedFunctionInfo "compiler_hints" field have changed over time.
+	 * It's unlikely we'll ever have metadata in the binary for this field,
+	 * since current versions of V8 and Node (at least V8 4.9.385 and later
+	 * and Node 6.8 and later) don't use it at all.
+	 *
+	 * Important versions:
+	 *
+	 *     Node     V8
+	 *     0.12.0	3.28.73.0
+	 *     0.12.16  3.28.71.19 (note: earlier V8 than that in v0.12.0)
+	 *     4.0.0    4.5.103.30
+	 *     6.0.0    5.0.71.35 (can detect V8_TYPE_JSBOUNDFUNCTION)
+	 */
+	if (V8_TYPE_JSBOUNDFUNCTION == -1) {
+		if (v8_version_current_older(3, 28, 71, 19)) {
+			/* Node 0.10 */
+			V8_CompilerHints_BoundFunction = 13;
+		} else if (v8_version_current_older(4, 5, 103, 30)) {
+			/* Node 0.12 */
+			V8_CompilerHints_BoundFunction = 8;
+		} else {
+			/* Node v4 */
+			V8_CompilerHints_BoundFunction = 10;
+		}
 	}
 
 	return (failed ? -1 : 0);
@@ -3391,6 +3427,7 @@ jsobj_print_value(v8propvalue_t *valp, jsobj_print_t *jsop)
 		{ "JSArray", jsobj_print_jsarray },
 		{ "JSTypedArray", jsobj_print_jstyped_array },
 		{ "JSFunction", jsobj_print_jsfunction },
+		{ "JSBoundFunction", jsobj_print_jsboundfunction },
 		{ "JSDate", jsobj_print_jsdate },
 		{ "JSRegExp", jsobj_print_jsregexp },
 		{ NULL }
@@ -3781,6 +3818,16 @@ jsobj_print_jsfunction(uintptr_t addr, jsobj_print_t *jsop)
 
 	(void) bsnprintf(bufp, lenp, "function ");
 	return (jsfunc_name(shared, bufp, lenp) != 0);
+}
+
+static int
+jsobj_print_jsboundfunction(uintptr_t addr, jsobj_print_t *jsop)
+{
+	char **bufp = jsop->jsop_bufp;
+	size_t *lenp = jsop->jsop_lenp;
+
+	(void) bsnprintf(bufp, lenp, "<bound function>");
+	return (0);
 }
 
 static int
@@ -5832,7 +5879,7 @@ jsclosure_iter_var(v8scopeinfo_t *sip, v8scopeinfo_var_t *sivp, void *arg)
 
 /* ARGSUSED */
 static int
-jsfunction_bound_arg(v8funcbind_t *fbp, uint_t which, uintptr_t value,
+jsfunction_bound_arg(v8boundfunction_t *bfp, uint_t which, uintptr_t value,
     void *unused)
 {
 	char buf[80];
@@ -5851,14 +5898,38 @@ static int
 dcmd_jsfunction(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 {
 	v8function_t *fp = NULL;
-	v8funcbind_t *fbp = NULL;
 	v8funcinfo_t *fip = NULL;
+	v8boundfunction_t *bfp = NULL;
 	mdbv8_strbuf_t *strb = NULL;
 	int memflags = UM_SLEEP | UM_GC;
 	int rv = DCMD_ERR;
 	char buf[80];
 	size_t len = sizeof (buf);
 	char *bufp;
+
+	/*
+	 * Bound functions are separate from other functions.  The regular
+	 * function APIs may not work on them, depending on the Node version.
+	 * Handle them first.
+	 * TODO the API here doesn't really allow you to distinguish between
+	 * something like memory allocation failure and bad input (e.g., not a
+	 * bound function).  It was written assuming you would know what type
+	 * you expected something to be, but this is one of the first cases
+	 * where we don't.
+	 */
+	if ((bfp = v8boundfunction_load(addr, memflags)) != NULL) {
+		uintptr_t thisp;
+
+		mdb_printf("bound function that wraps: %p\n",
+		    v8boundfunction_target(bfp));
+		thisp = v8boundfunction_this(bfp);
+		bufp = buf;
+		(void) obj_jstype(thisp, &bufp, &len, NULL);
+		mdb_printf("with \"this\" = %p (%s)\n", thisp, buf);
+		rv = v8boundfunction_iter_args(bfp, jsfunction_bound_arg, NULL);
+		v8boundfunction_free(bfp);
+		return (rv);
+	}
 
 	v8_warnings++;
 	if ((fp = v8function_load(addr, memflags)) == NULL ||
@@ -5869,8 +5940,7 @@ dcmd_jsfunction(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 
 	mdbv8_strbuf_sprintf(strb, "function: ");
 
-	if (v8funcinfo_funcname(fip, strb, MSF_ASCIIONLY) != 0 ||
-	    v8function_funcbind(fp, memflags, &fbp) != 0) {
+	if (v8funcinfo_funcname(fip, strb, MSF_ASCIIONLY) != 0) {
 		goto out;
 	}
 
@@ -5879,29 +5949,16 @@ dcmd_jsfunction(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 	mdbv8_strbuf_sprintf(strb, " ");
 	(void) v8funcinfo_definition_location(fip, strb, MSF_ASCIIONLY);
 	mdb_printf("%s\n", mdbv8_strbuf_tocstr(strb));
-
-	if (fbp != NULL) {
-		uintptr_t thisp;
-
-		mdb_printf("bound function that wraps: %p\n",
-		    v8funcbind_target(fbp));
-		thisp = v8funcbind_this(fbp);
-		bufp = buf;
-		(void) obj_jstype(thisp, &bufp, &len, NULL);
-		mdb_printf("with \"this\" = %p (%s)\n", thisp, buf);
-		rv = v8funcbind_iter_args(fbp, jsfunction_bound_arg,
-		    NULL);
-	} else {
-		rv = DCMD_OK;
-	}
+	rv = DCMD_OK;
 
 out:
-	v8funcbind_free(fbp);
 	v8funcinfo_free(fip);
 	v8function_free(fp);
+	mdbv8_strbuf_free(strb);
 	v8_warnings--;
 	return (rv);
 }
+
 /* ARGSUSED */
 static int
 dcmd_jsclosure(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)

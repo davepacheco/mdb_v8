@@ -242,8 +242,6 @@ processors = [
 		}
 	});
 
-	// XXX skip new tests on V8 4.9.385 or later (this is V8 version for
-	// first Node version where JSBoundFunction appears)
 	assert.deepEqual([], required);
 	doCmd(util.format('%s::v8function ! ' +
 	    'awk \'/shared scope_info:/{ print $3 }\'\n', func));
@@ -309,26 +307,24 @@ processors = [
 	var i;
 
 	lines = chunk.split(/\n/);
-	if (lines.length != 9 ||
+	if (lines.length != 7 ||
 	    /* BEGIN JSSTYLED */
-	    !/^function: <anonymous> \(as .*\)/.test(lines[0]) ||
-	    !/^defined at native v8natives\.js/.test(lines[1]) ||
-	    !/^bound function that wraps: [a-fA-F0-9]+/.test(lines[2]) ||
-	    !/^with "this" = [a-fA-F0-9]+ \(.*Object\)/.test(lines[3]) ||
-	    !/^      arg0  = [a-fA-F0-9]+ \(.*String\)/.test(lines[4]) ||
-	    !/^      arg1  = [a-fA-F0-9]+ \(.*String\)/.test(lines[5]) ||
-	    !/^      arg2  = [a-fA-F0-9]+ \(.*String\)/.test(lines[6]) ||
-	    !/^      arg3  = [a-fA-F0-9]+ \(.*String\)/.test(lines[7])) {
+	    !/^bound function that wraps: [a-fA-F0-9]+/.test(lines[0]) ||
+	    !/^with "this" = [a-fA-F0-9]+ \(.*Object\)/.test(lines[1]) ||
+	    !/^      arg0  = [a-fA-F0-9]+ \(.*String\)/.test(lines[2]) ||
+	    !/^      arg1  = [a-fA-F0-9]+ \(.*String\)/.test(lines[3]) ||
+	    !/^      arg2  = [a-fA-F0-9]+ \(.*String\)/.test(lines[4]) ||
+	    !/^      arg3  = [a-fA-F0-9]+ \(.*String\)/.test(lines[5])) {
 		/* END JSSTYLED */
-		throw (new Error('output mismatch'));
+		throw (new Error('::jsfunction output mismatch'));
 	}
 
-	match = lines[2].match(/^bound function that wraps: ([a-fA-F0-9]+)/);
+	match = lines[0].match(/^bound function that wraps: ([a-fA-F0-9]+)/);
 	assert.notStrictEqual(match, null);
 	bindTarget = match[1];
 
 	values = {};
-	for (i = 3; i < 8; i++) {
+	for (i = 1; i < 6; i++) {
 		match = lines[i].match(
 		    /* JSSTYLED */
 		    /\s+"?(arg\d+|this)"?\s+= ([a-fA-F0-9]+)/);

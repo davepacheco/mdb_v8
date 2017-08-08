@@ -52,6 +52,7 @@ boolean_t jsobj_is_undefined(uintptr_t);
  * represent all the metadata constants used by multiple C files.
  */
 extern intptr_t V8_TYPE_JSFUNCTION;
+extern intptr_t V8_TYPE_JSBOUNDFUNCTION;
 extern intptr_t V8_TYPE_FIXEDARRAY;
 
 extern intptr_t V8_IsNotStringMask;
@@ -75,6 +76,9 @@ extern ssize_t V8_OFF_CONSSTRING_SECOND;
 extern ssize_t V8_OFF_EXTERNALSTRING_RESOURCE;
 extern ssize_t V8_OFF_FIXEDARRAY_DATA;
 extern ssize_t V8_OFF_FIXEDARRAY_LENGTH;
+extern ssize_t V8_OFF_JSBOUNDFUNCTION_BOUND_ARGUMENTS;
+extern ssize_t V8_OFF_JSBOUNDFUNCTION_BOUND_TARGET_FUNCTION;
+extern ssize_t V8_OFF_JSBOUNDFUNCTION_BOUND_THIS;
 extern ssize_t V8_OFF_JSFUNCTION_CONTEXT;
 extern ssize_t V8_OFF_JSFUNCTION_LITERALS_OR_BINDINGS;
 extern ssize_t V8_OFF_JSFUNCTION_SHARED;

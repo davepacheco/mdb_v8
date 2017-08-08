@@ -64,11 +64,33 @@ struct v8scopeinfo {
 	size_t		v8si_nelts;	/* count of slots */
 };
 
-struct v8funcbind {
-	uintptr_t	v8fb_func;	/* address of bound function */
-	uintptr_t	v8fb_memflags;	/* memory allocation flags */
-	size_t		v8fb_nbindings;	/* count of bound variables */
-	uintptr_t	*v8fb_bindings;	/* array of bound values */
+struct v8boundfunction {
+	uintptr_t	v8bf_addr;	/* address of bound function */
+ 	uintptr_t	v8bf_memflags;	/* memory allocation flags */
+
+	/*
+	 * As mentioned in mdb_v8_dbg.h, earlier versions of V8 use a plain
+	 * JSFunction to represent bound functions.  In those versions, there's
+	 * a "bindings" array that contains the values of the wrapped function,
+	 * "this", and all of the bound arguments.  Newer versions of V8 use a
+	 * separate class for bound functions that has first-class properties
+	 * for these fields.
+	 *
+	 * It's pretty easy to normalize the target function and "this", so we
+	 * do that at load time and store them into v8bf_target and v8bf_this.
+	 */
+	uintptr_t	v8bf_target;	/* target (wrapped) function */
+	uintptr_t	v8bf_this;	/* bound value of "this" */
+
+	/*
+	 * Abstracting over the argument list is only slightly trickier.  In
+	 * both cases, we have a V8 array, but in one case we need to skip the
+	 * first two elements.
+	 */
+	uintptr_t	*v8bf_array;	/* bindings or arguments (see above) */
+	uintptr_t	v8bf_arraylen;	/* length of "v8bf_array" */
+	uintptr_t	v8bf_idx_arg0;	/* first valid argument in
+					   "v8bf_args" */
 };
 
 /*
@@ -127,6 +149,8 @@ static size_t v8scopeinfo_nvartypes =
 static uintptr_t v8context_elt(v8context_t *, unsigned int);
 static v8scopeinfo_vartype_info_t *v8scopeinfo_vartype_lookup(
     v8scopeinfo_vartype_t);
+static v8boundfunction_t *v8boundfunction_load_bindings(uintptr_t, int);
+static v8boundfunction_t *v8boundfunction_load_direct(uintptr_t, int);
 
 
 /*
@@ -245,79 +269,6 @@ v8funcinfo_t *
 v8function_funcinfo(v8function_t *funcp, int memflags)
 {
 	return (v8funcinfo_load(funcp->v8func_shared, memflags));
-}
-
-
-/*
- * Given a function, load information about its binding.  This function returns
- * non-zero if we failed to determine whether this function had a binding or we
- * determined that it did but failed to load the binding details.  This function
- * may return 0 with a NULL value in "fbpp" if "funcp" was not a bound function.
- */
-int
-v8function_funcbind(v8function_t *funcp, int memflags, v8funcbind_t **fbpp)
-{
-	uintptr_t hints, bindingsp;
-	v8funcbind_t *fbp;
-	v8funcinfo_t *fip;
-	int err;
-
-	*fbpp = NULL;
-
-	/*
-	 * To determine whether this is even a bound function, we need to look
-	 * at the compiler hints hanging off the SharedFunctionInfo.
-	 */
-	fip = v8function_funcinfo(funcp, memflags);
-	if (fip == NULL) {
-		return (-1);
-	}
-
-	err = read_heap_maybesmi(&hints, fip->v8fi_addr,
-	    V8_OFF_SHAREDFUNCTIONINFO_COMPILER_HINTS);
-	v8funcinfo_free(fip);
-
-	if (err != 0) {
-		return (-1);
-	}
-
-	if (!V8_HINT_BOUND(hints)) {
-		v8funcinfo_free(fip);
-		return (0);
-	}
-
-	if (read_heap_ptr(&bindingsp, funcp->v8func_addr,
-	    V8_OFF_JSFUNCTION_LITERALS_OR_BINDINGS) != 0) {
-		v8_warn("%p: failed to load bindings\n",
-		    funcp->v8func_addr);
-		return (-1);
-	}
-
-	if ((fbp = mdb_zalloc(sizeof (*fbp), memflags)) == NULL) {
-		return (-1);
-	}
-
-	fbp->v8fb_func = funcp->v8func_addr;
-	fbp->v8fb_memflags = memflags;
-	if (read_heap_array(bindingsp, &fbp->v8fb_bindings,
-	    &fbp->v8fb_nbindings, memflags) != 0) {
-		v8_warn("%p: failed to load bindings array\n",
-		    funcp->v8func_addr);
-		goto err;
-	}
-
-	if (fbp->v8fb_nbindings < 2) {
-		v8_warn("%p: bindings array is too short\n",
-		    funcp->v8func_addr);
-		goto err;
-	}
-
-	*fbpp = fbp;
-	return (0);
-
-err:
-	v8funcbind_free(fbp);
-	return (-1);
 }
 
 
@@ -1099,76 +1050,200 @@ v8scopeinfo_vartype_lookup(v8scopeinfo_vartype_t scopevartype)
  *     "myFunc" is the target function.
  *     "newctx" is the value of "this" inside the "myFunc" invocation.
  *
- * This is implemented in V8 by storing an array of bindings on "bound" that
- * contains the target function, followed by the "this" value, followed by any
- * other arguments that were specified.  We don't expose the array of bindings
- * directly, but rather we expose getters for the user-visible parts of the
- * abstraction (the target, the "this" value, and the arguments).
+ * See the comments in mdb_v8_dbg.h and in the definition of "struct
+ * v8boundfunction" above for implementation notes.
  */
+
+v8boundfunction_t *
+v8boundfunction_load(uintptr_t addr, int memflags)
+{
+	if (V8_TYPE_JSBOUNDFUNCTION == -1) {
+		/*
+		 * This is Node prior to v6.  Load this as a v8function_t and
+		 * use its bindings array.
+		 */
+		return (v8boundfunction_load_bindings(addr, memflags));
+	} else {
+		/*
+		 * This is a more recent version of V8 that stores information
+		 * directly in a JSBoundFunction.
+		 */
+		return (v8boundfunction_load_direct(addr, memflags));
+	}
+}
+
+static v8boundfunction_t *
+v8boundfunction_load_bindings(uintptr_t addr, int memflags)
+{
+	v8function_t *funcp;
+	v8boundfunction_t *bfp;
+	uintptr_t hints, bindingsp;
+	v8funcinfo_t *fip;
+	int err;
+
+	funcp = v8function_load(addr, memflags);
+	if (funcp == NULL) {
+		return (NULL);
+	}
+
+	/*
+	 * To determine whether this is even a bound function, we need to look
+	 * at the compiler hints hanging off the SharedFunctionInfo.
+	 */
+	fip = v8function_funcinfo(funcp, memflags);
+	v8function_free(funcp);
+	if (fip == NULL) {
+		return (NULL);
+	}
+
+	err = read_heap_maybesmi(&hints, fip->v8fi_addr,
+	    V8_OFF_SHAREDFUNCTIONINFO_COMPILER_HINTS);
+	v8funcinfo_free(fip);
+	if (err != 0) {
+		return (NULL);
+	}
+
+	if (!V8_HINT_BOUND(hints)) {
+		v8_warn("%p: not a bound function\n", addr);
+		return (NULL);
+	}
+
+	if (read_heap_ptr(&bindingsp, addr,
+	    V8_OFF_JSFUNCTION_LITERALS_OR_BINDINGS) != 0) {
+		v8_warn("%p: failed to load bindings\n", addr);
+		return (NULL);
+	}
+
+	if ((bfp = mdb_zalloc(sizeof (*bfp), memflags)) == NULL) {
+		return (NULL);
+	}
+
+	bfp->v8bf_addr = addr;
+	bfp->v8bf_memflags = memflags;
+
+	if (read_heap_array(bindingsp, &bfp->v8bf_array,
+	    &bfp->v8bf_arraylen, memflags) != 0) {
+		v8_warn("%p: failed to load bindings array\n", addr);
+		v8boundfunction_free(bfp);
+		return (NULL);
+	}
+
+	if (bfp->v8bf_arraylen < 2) {
+		v8_warn("%p: bindings array is too short\n", addr);
+		v8boundfunction_free(bfp);
+		return (NULL);
+	}
+
+	bfp->v8bf_target = bfp->v8bf_array[0];
+	bfp->v8bf_this = bfp->v8bf_array[1];
+	bfp->v8bf_idx_arg0 = 2;
+	return (bfp);
+}
+
+static v8boundfunction_t *
+v8boundfunction_load_direct(uintptr_t addr, int memflags)
+{
+	uint8_t type;
+	uintptr_t boundArgs;
+	v8boundfunction_t *bfp;
+
+	assert(V8_TYPE_JSBOUNDFUNCTION != -1);
+
+	if (!V8_IS_HEAPOBJECT(addr) || read_typebyte(&type, addr) != 0) {
+		v8_warn("%p: not a heap object\n", addr);
+		return (NULL);
+	}
+
+	if (type != V8_TYPE_JSBOUNDFUNCTION) {
+		v8_warn("%p: not a JSBoundFunction\n", addr);
+		return (NULL);
+	}
+
+	if ((bfp = mdb_zalloc(sizeof (*bfp), memflags)) == NULL) {
+		return (NULL);
+	}
+
+	if (read_heap_ptr(&bfp->v8bf_target, addr,
+	    V8_OFF_JSBOUNDFUNCTION_BOUND_TARGET_FUNCTION) == -1 ||
+	    read_heap_ptr(&bfp->v8bf_this, addr,
+	    V8_OFF_JSBOUNDFUNCTION_BOUND_THIS) == -1 ||
+	    read_heap_ptr(&boundArgs, addr,
+	    V8_OFF_JSBOUNDFUNCTION_BOUND_ARGUMENTS) == -1 ||
+	    read_heap_array(boundArgs, &bfp->v8bf_array,
+	    &bfp->v8bf_arraylen, memflags) == -1) {
+		v8_warn("%p: failed to read binding details\n", addr);
+		v8boundfunction_free(bfp);
+		return (NULL);
+	}
+
+	bfp->v8bf_addr = addr;
+	bfp->v8bf_memflags = memflags;
+	return (bfp);
+}
 
 /*
  * Returns the target of this bound function (i.e., the function that this
  * function wraps).
  */
 uintptr_t
-v8funcbind_target(v8funcbind_t *fbp)
+v8boundfunction_target(v8boundfunction_t *bfp)
 {
-	assert(fbp->v8fb_nbindings > 0);
-	return (fbp->v8fb_bindings[0]);
+	return (bfp->v8bf_target);
 }
 
 /*
  * Returns the value of "this" specified by this binding.
  */
 uintptr_t
-v8funcbind_this(v8funcbind_t *fbp)
+v8boundfunction_this(v8boundfunction_t *bfp)
 {
-	assert(fbp->v8fb_nbindings > 1);
-	return (fbp->v8fb_bindings[1]);
+	return (bfp->v8bf_this);
 }
 
 /*
  * Returns the number of arguments specified by this binding.
  */
 size_t
-v8funcbind_nargs(v8funcbind_t *fbp)
+v8boundfunction_nargs(v8boundfunction_t *bfp)
 {
-	assert(fbp->v8fb_nbindings >= 2);
-	return (fbp->v8fb_nbindings - 2);
+	return (bfp->v8bf_arraylen - bfp->v8bf_idx_arg0);
 }
 
 /*
  * Iterates the arguments specified by this binding.
  */
 int
-v8funcbind_iter_args(v8funcbind_t *fbp,
-    int (*func)(v8funcbind_t *, uint_t, uintptr_t, void *), void *arg)
+v8boundfunction_iter_args(v8boundfunction_t *bfp,
+    int (*func)(v8boundfunction_t *, uint_t, uintptr_t, void *), void *arg)
 {
-	size_t i, nargs;
+	size_t argi, elti;
 	int rv = 0;
 
-	assert(fbp->v8fb_nbindings >= 2);
-	nargs = v8funcbind_nargs(fbp);
-	for (i = 0; i < nargs; i++) {
-		rv = func(fbp, i, fbp->v8fb_bindings[i + 2], arg);
+	for (argi = 0, elti = bfp->v8bf_idx_arg0;
+	    elti < bfp->v8bf_arraylen; argi++, elti++) {
+		rv = func(bfp, argi, bfp->v8bf_array[elti], arg);
 		if (rv != 0) {
-			break;
+			return (rv);
 		}
 	}
 
-	return (rv);
+	assert(argi == v8boundfunction_nargs(bfp));
+	return (0);
 }
 
 /*
- * Free a v8funcbind_t object.
+ * Free a v8boundfunction_t object.
  * See the patterns in mdb_v8_dbg.h for interface details.
  */
 void
-v8funcbind_free(v8funcbind_t *fbp)
+v8boundfunction_free(v8boundfunction_t *bfp)
 {
-	if (fbp == NULL) {
+	if (bfp == NULL) {
 		return;
 	}
 
-	maybefree(fbp, sizeof (*fbp), fbp->v8fb_memflags);
+	maybefree(bfp->v8bf_array,
+	    bfp->v8bf_arraylen * sizeof (bfp->v8bf_array[0]),
+	    bfp->v8bf_memflags);
+	maybefree(bfp, sizeof (*bfp), bfp->v8bf_memflags);
 }
