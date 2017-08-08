@@ -47,9 +47,9 @@
  * Check compiler hints, which hang off of SharedFunctionInfo objects.
  */
 #define	V8_HINT_ISSET(hints, whichbit) \
-    (((hints) & (1 << whichbit)) != 0)
+	(((hints) & (1 << whichbit)) != 0)
 #define	V8_HINT_BOUND(hints) \
-    (V8_HINT_ISSET((hints), V8_CompilerHints_BoundFunction))
+	(V8_HINT_ISSET((hints), V8_CompilerHints_BoundFunction))
 
 /*
  * Determine the encoding and representation of a V8 string.

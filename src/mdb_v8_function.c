@@ -305,7 +305,7 @@ v8function_funcbind(v8function_t *funcp, int memflags, v8funcbind_t **fbpp)
 	fbp->v8fb_func = funcp->v8func_addr;
 	fbp->v8fb_memflags = memflags;
 	if (read_heap_array(bindingsp, &fbp->v8fb_bindings,
-    	    &fbp->v8fb_nbindings, memflags) != 0) {
+	    &fbp->v8fb_nbindings, memflags) != 0) {
 		v8_warn("%p: failed to load bindings array\n",
 		    funcp->v8func_addr);
 		goto err;
