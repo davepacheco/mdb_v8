@@ -273,12 +273,7 @@ v8function_funcbind(v8function_t *funcp, int memflags, v8funcbind_t **fbpp)
 		return (-1);
 	}
 
-	/*
-	 * XXX working here:
-	 * - free the funcinfo immediately after this read_heap_ptr
-	 * - finish making this code work
-	 */
-	err = read_heap_ptr(&hints, fip->v8fi_addr,
+	err = read_heap_maybesmi(&hints, fip->v8fi_addr,
 	    V8_OFF_SHAREDFUNCTIONINFO_COMPILER_HINTS);
 	v8funcinfo_free(fip);
 

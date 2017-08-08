@@ -150,6 +150,7 @@ intptr_t V8_TYPE_EXECUTABLEACCESSORINFO = -1;
 intptr_t V8_TYPE_JSOBJECT = -1;
 intptr_t V8_TYPE_JSARRAY = -1;
 intptr_t V8_TYPE_JSFUNCTION = -1;
+intptr_t V8_TYPE_JSBOUNDFUNCTION = -1;
 intptr_t V8_TYPE_JSDATE = -1;
 intptr_t V8_TYPE_JSREGEXP = -1;
 intptr_t V8_TYPE_HEAPNUMBER = -1;
@@ -322,8 +323,11 @@ static v8_constant_t v8_constants[] = {
 	{ &V8_PointerSizeLog2,		"v8dbg_PointerSizeLog2"		},
 
 	/* XXX version right here? */
+	/* decimal "13" is the correct offset for node v0.10.47 */
+	/* decimal "8" is the correct offset for node v0.12.16 */
+	/* decimal "10" is the correct offset for node v4.6.0 */
 	{ &V8_CompilerHints_BoundFunction, "v8dbg_CompilerHints_BoundFunction",
-	    V8_CONSTANT_FALLBACK(3, 14), 11 },
+	    V8_CONSTANT_FALLBACK(3, 14), 10 },
 
 	{ &V8_DICT_SHIFT,		"v8dbg_bit_field3_dictionary_map_shift",
 	    V8_CONSTANT_FALLBACK(3, 13), 24 },
@@ -437,8 +441,9 @@ static v8_offset_t v8_offsets[] = {
 	    "JSDate", "value", B_TRUE },
 	{ &V8_OFF_JSFUNCTION_CONTEXT,
 	    "JSFunction", "context", B_TRUE },
+	/* XXX should be non-optional prior to Node v6 */
 	{ &V8_OFF_JSFUNCTION_LITERALS_OR_BINDINGS,
-	    "JSFunction", "literals_or_bindings" },
+	    "JSFunction", "literals_or_bindings", B_TRUE },
 	{ &V8_OFF_JSFUNCTION_SHARED,
 	    "JSFunction", "shared" },
 	{ &V8_OFF_JSOBJECT_ELEMENTS,
@@ -807,6 +812,13 @@ autoconfigure(v8_cfg_t *cfgp)
 
 		if (strcmp(ep->v8e_name, "JSArray") == 0)
 			V8_TYPE_JSARRAY = ep->v8e_value;
+
+		/*
+		 * JSBoundFunction is only used in relatively modern versions of
+		 * V8 (those used in Node v6 and later).
+		 */
+		if (strcmp(ep->v8e_name, "JSBoundFunction") == 0)
+			V8_TYPE_JSBOUNDFUNCTION = ep->v8e_value;
 
 		if (strcmp(ep->v8e_name, "JSFunction") == 0)
 			V8_TYPE_JSFUNCTION = ep->v8e_value;
@@ -1682,15 +1694,15 @@ read_heap_byte(uint8_t *valp, uintptr_t addr, ssize_t off)
 }
 
 /*
- * This is truly horrific.  Inside the V8 Script class are a number of
- * small-integer fields like the function_token_position (an offset into the
- * script's text where the "function" token appears).  For 32-bit processes, V8
- * stores these as a sequence of SMI fields, which we know how to interpret well
- * enough.  For 64-bit processes, "to avoid wasting space", they use a different
- * trick: each 8-byte word contains two integer fields.  The low word is
- * represented like an SMI: shifted left by one.  They don't bother shifting the
- * high word, since its low bit will never be looked at (since it's not
- * word-aligned).
+ * This is truly horrific.  Inside the V8 Script and SharedFunctionInfo classes
+ * are a number of small-integer fields like the function_token_position (an
+ * offset into the script's text where the "function" token appears).  For
+ * 32-bit processes, V8 stores these as a sequence of SMI fields, which we know
+ * how to interpret well enough.  For 64-bit processes, "to avoid wasting
+ * space", they use a different trick: each 8-byte word contains two integer
+ * fields.  The low word is represented like an SMI: shifted left by one.  They
+ * don't bother shifting the high word, since its low bit will never be looked
+ * at (since it's not word-aligned).
  *
  * This function is used for cases where we would use read_heap_smi(), except
  * that this is one of those fields that might be encoded or might not be,
@@ -1997,7 +2009,19 @@ obj_jstype(uintptr_t addr, char **bufp, size_t *lenp, uint8_t *typep)
 	if (typep)
 		*typep = typebyte;
 
-	typename = enum_lookup_str(v8_types, typebyte, "<unknown>");
+	typename = enum_lookup_str(v8_types, typebyte, NULL);
+
+	/*
+	 * For not-yet-diagnosed reasons, we don't seem to be able to match the
+	 * type byte for various string classes in Node v0.12 and later.
+	 * However, we can tell from the tag which type of string it is, and
+	 * we're generally able to print them.
+	 */
+	if (typename == NULL && V8_TYPE_STRING(typebyte)) {
+		typename = "<unknown subclass>: String";
+	} else if (typename == NULL) {
+		typename = "<unknown>";
+	}
 	(void) bsnprintf(bufp, lenp, typename);
 
 	if (strcmp(typename, "Oddball") == 0) {
@@ -2292,6 +2316,8 @@ jsobj_maybe_garbage(uintptr_t addr)
 	    type != V8_TYPE_JSOBJECT &&
 	    type != V8_TYPE_JSARRAY &&
 	    type != V8_TYPE_JSFUNCTION &&
+	    (V8_TYPE_JSBOUNDFUNCTION == -1 ||
+	    type != V8_TYPE_JSBOUNDFUNCTION) &&
 	    type != V8_TYPE_JSDATE &&
 	    type != V8_TYPE_JSREGEXP &&
 	    type != V8_TYPE_JSTYPEDARRAY)));

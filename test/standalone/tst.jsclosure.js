@@ -242,6 +242,8 @@ processors = [
 		}
 	});
 
+	// XXX skip new tests on V8 4.9.385 or later (this is V8 version for
+	// first Node version where JSBoundFunction appears)
 	assert.deepEqual([], required);
 	doCmd(util.format('%s::v8function ! ' +
 	    'awk \'/shared scope_info:/{ print $3 }\'\n', func));
@@ -309,7 +311,7 @@ processors = [
 	lines = chunk.split(/\n/);
 	if (lines.length != 9 ||
 	    /* BEGIN JSSTYLED */
-	    !/^function: <anonymous> \(as b\)/.test(lines[0]) ||
+	    !/^function: <anonymous> \(as .*\)/.test(lines[0]) ||
 	    !/^defined at native v8natives\.js/.test(lines[1]) ||
 	    !/^bound function that wraps: [a-fA-F0-9]+/.test(lines[2]) ||
 	    !/^with "this" = [a-fA-F0-9]+ \(.*Object\)/.test(lines[3]) ||
