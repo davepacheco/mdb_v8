@@ -43,7 +43,7 @@ function doStuff(str)
 
 var bindObject = {
     '__bind': doStuff.bind({ 'thisObj': true },
-	'arg1', 'arg2', 'arg3', 'arg4')
+	'arg1value', 'arg2value', 'arg3value', 'arg4value')
 };
 
 doStuff('hello world');
@@ -354,10 +354,10 @@ processors = [
 	    '{',
 	    '    "thisObj": true,',
 	    '}',
-	    '"arg1"',
-	    '"arg2"',
-	    '"arg3"',
-	    '"arg4"',
+	    '"arg1value"',
+	    '"arg2value"',
+	    '"arg3value"',
+	    '"arg4value"',
 	    ''
 	]);
 
