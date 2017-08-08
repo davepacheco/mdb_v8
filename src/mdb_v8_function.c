@@ -66,7 +66,7 @@ struct v8scopeinfo {
 
 struct v8boundfunction {
 	uintptr_t	v8bf_addr;	/* address of bound function */
- 	uintptr_t	v8bf_memflags;	/* memory allocation flags */
+	uintptr_t	v8bf_memflags;	/* memory allocation flags */
 
 	/*
 	 * As mentioned in mdb_v8_dbg.h, earlier versions of V8 use a plain
@@ -89,8 +89,8 @@ struct v8boundfunction {
 	 */
 	uintptr_t	*v8bf_array;	/* bindings or arguments (see above) */
 	uintptr_t	v8bf_arraylen;	/* length of "v8bf_array" */
-	uintptr_t	v8bf_idx_arg0;	/* first valid argument in
-					   "v8bf_args" */
+	uintptr_t	v8bf_idx_arg0;	/* first valid argument in */
+					/* "v8bf_args" */
 };
 
 /*

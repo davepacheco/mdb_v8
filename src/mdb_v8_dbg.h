@@ -301,7 +301,7 @@ size_t v8scopeinfo_var_idx(v8scopeinfo_t *, v8scopeinfo_var_t *);
 uintptr_t v8scopeinfo_var_name(v8scopeinfo_t *, v8scopeinfo_var_t *);
 
 /*
- * Working with bound functions.  
+ * Working with bound functions.
  *
  * In versions of V8 used in Node v4 and earlier, bound functions have their own
  * valid JSFunction instance (with shared function info, name, and the usual

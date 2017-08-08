@@ -1107,11 +1107,11 @@ again:
 	 *
 	 * Important versions:
 	 *
-	 *     Node     V8
-	 *     0.12.0	3.28.73.0
-	 *     0.12.16  3.28.71.19 (note: earlier V8 than that in v0.12.0)
-	 *     4.0.0    4.5.103.30
-	 *     6.0.0    5.0.71.35 (can detect V8_TYPE_JSBOUNDFUNCTION)
+	 *	Node	V8
+	 *	0.12.0	3.28.73.0
+	 *	0.12.16	3.28.71.19 (note: earlier V8 than that in v0.12.0)
+	 *	4.0.0	4.5.103.30
+	 *	6.0.0	5.0.71.35 (can detect V8_TYPE_JSBOUNDFUNCTION)
 	 */
 	if (V8_TYPE_JSBOUNDFUNCTION == -1) {
 		if (v8_version_current_older(3, 28, 71, 19)) {
