@@ -94,6 +94,16 @@ struct v8boundfunction {
 };
 
 /*
+ * These constants describe the layout of the "bindings" array for bound
+ * functions.  They could in principle come from postmortem metadata, but
+ * they're already obselete in current versions of V8, so it's unlikely they'd
+ * ever come from the binary anyway.
+ */
+static int V8_BINDINGS_INDEX_TARGET = 0;
+static int V8_BINDINGS_INDEX_THIS = 1;
+static int V8_BINDINGS_INDEX_ARGS_START = 2;
+
+/*
  * This structure and array describe the statically-defined fields stored inside
  * each Context.  This is mainly useful for debugger tools that want to dump
  * everything inside the context.
@@ -1128,15 +1138,15 @@ v8boundfunction_load_bindings(uintptr_t addr, int memflags)
 		return (NULL);
 	}
 
-	if (bfp->v8bf_arraylen < 2) {
+	if (bfp->v8bf_arraylen < V8_BINDINGS_INDEX_ARGS_START) {
 		v8_warn("%p: bindings array is too short\n", addr);
 		v8boundfunction_free(bfp);
 		return (NULL);
 	}
 
-	bfp->v8bf_target = bfp->v8bf_array[0];
-	bfp->v8bf_this = bfp->v8bf_array[1];
-	bfp->v8bf_idx_arg0 = 2;
+	bfp->v8bf_target = bfp->v8bf_array[V8_BINDINGS_INDEX_TARGET];
+	bfp->v8bf_this = bfp->v8bf_array[V8_BINDINGS_INDEX_THIS];
+	bfp->v8bf_idx_arg0 = V8_BINDINGS_INDEX_ARGS_START;
 	return (bfp);
 }
 
