@@ -3727,15 +3727,37 @@ jsobj_print_jsarray_member(uintptr_t addr, jsobj_print_t *jsop)
 }
 
 static int
+jsobj_print_jsarray_one(v8array_t *ap, unsigned int index,
+    uintptr_t value, void *uarg)
+{
+	jsobj_print_t *jsop = uarg;
+	char **bufp = jsop->jsop_bufp;
+	size_t *lenp = jsop->jsop_lenp;
+
+	if (v8array_length(ap) == 1) {
+		(void) jsobj_print(value, jsop);
+	} else {
+		if (*lenp <= 0) {
+			return (-1);
+		}
+
+		(void) bsnprintf(bufp, lenp, "%*s", jsop->jsop_indent, "");
+		(void) jsobj_print(value, jsop);
+		(void) bsnprintf(bufp, lenp, ",\n");
+	}
+
+	return (0);
+}
+
+static int
 jsobj_print_jsarray(uintptr_t addr, jsobj_print_t *jsop)
 {
 	char **bufp = jsop->jsop_bufp;
 	size_t *lenp = jsop->jsop_lenp;
 	int indent = jsop->jsop_indent;
 	jsobj_print_t descend;
-	uintptr_t ptr;
-	uintptr_t *elts;
-	size_t ii, len;
+	size_t len;
+	v8array_t *ap;
 
 	if (jsop->jsop_member != NULL)
 		return (jsobj_print_jsarray_member(addr, jsop));
@@ -3745,17 +3767,12 @@ jsobj_print_jsarray(uintptr_t addr, jsobj_print_t *jsop)
 		return (0);
 	}
 
-	if (read_heap_ptr(&ptr, addr, V8_OFF_JSOBJECT_ELEMENTS) != 0) {
-		(void) bsnprintf(bufp, lenp,
-		    "<array (failed to read elements)>");
+	ap = v8array_load(addr, UM_NOSLEEP);
+	if (ap == NULL) {
 		return (-1);
 	}
 
-	if (read_heap_array(ptr, &elts, &len, UM_SLEEP | UM_GC) != 0) {
-		(void) bsnprintf(bufp, lenp, "<array (failed to read array)>");
-		return (-1);
-	}
-
+	len = v8array_length(ap);
 	if (len == 0) {
 		(void) bsnprintf(bufp, lenp, "[]");
 		return (0);
@@ -3767,19 +3784,14 @@ jsobj_print_jsarray(uintptr_t addr, jsobj_print_t *jsop)
 
 	if (len == 1) {
 		(void) bsnprintf(bufp, lenp, "[ ");
-		(void) jsobj_print(elts[0], &descend);
+		(void) v8array_iter_elements(ap, jsobj_print_jsarray_one,
+		    &descend);
 		(void) bsnprintf(bufp, lenp, " ]");
 		return (0);
 	}
 
 	(void) bsnprintf(bufp, lenp, "[\n");
-
-	for (ii = 0; ii < len && *lenp > 0; ii++) {
-		(void) bsnprintf(bufp, lenp, "%*s", indent + 4, "");
-		(void) jsobj_print(elts[ii], &descend);
-		(void) bsnprintf(bufp, lenp, ",\n");
-	}
-
+	(void) v8array_iter_elements(ap, jsobj_print_jsarray_one, &descend);
 	(void) bsnprintf(bufp, lenp, "%*s", indent, "");
 	(void) bsnprintf(bufp, lenp, "]");
 
@@ -6496,24 +6508,57 @@ dcmd_v8field(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 
 /* ARGSUSED */
 static int
+v8array_print_one(v8fixedarray_t *arrayp, unsigned int i,
+    uintptr_t value, void *unused)
+{
+	mdb_printf("%p\n", value);
+	return (0);
+}
+
+/* ARGSUSED */
+static int
 dcmd_v8array(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 {
 	v8fixedarray_t *arrayp;
-	uintptr_t *elts;
-	size_t i, len;
+	boolean_t immediate = B_FALSE;
+	int rv;
+
+	/*
+	 * The "immediate" option causes us to load the entire array into
+	 * memory.  This is likely only useful for testing.
+	 */
+	if (mdb_getopts(argc, argv,
+	    'i', MDB_OPT_SETBITS, B_TRUE, &immediate, NULL) != argc) {
+		return (DCMD_USAGE);
+	}
 
 	if ((arrayp = v8fixedarray_load(addr, UM_SLEEP | UM_GC)) == NULL) {
 		return (DCMD_ERR);
 	}
 
-	elts = v8fixedarray_elts(arrayp);
-	len = v8fixedarray_length(arrayp);
+	if (!immediate) {
+		rv = v8fixedarray_iter_elements(
+		    arrayp, v8array_print_one, NULL);
+	} else {
+		unsigned int i, len;
+		uintptr_t *immed;
 
-	for (i = 0; i < len; i++)
-		mdb_printf("%p\n", elts[i]);
+		len = v8fixedarray_length(arrayp);
+		immed = v8fixedarray_as_array(arrayp, UM_SLEEP | UM_GC);
+		if (immed == 0) {
+			rv = -1;
+		} else {
+			rv = 0;
+			for (i = 0; i < len; i++) {
+				mdb_printf("%p\n", immed[i]);
+			}
+			maybefree(immed, len * sizeof (immed[0]),
+			    UM_SLEEP | UM_GC);
+		}
+	}
 
 	v8fixedarray_free(arrayp);
-	return (DCMD_OK);
+	return (rv == 0 ? DCMD_OK : DCMD_ERR);
 }
 
 /* ARGSUSED */
@@ -6833,7 +6878,7 @@ static const mdb_dcmd_t v8_mdb_dcmds[] = {
 	/*
 	 * Commands to inspect V8-level state
 	 */
-	{ "v8array", ":", "print elements of a V8 FixedArray",
+	{ "v8array", ":[-i]", "print elements of a V8 FixedArray",
 		dcmd_v8array },
 	{ "v8classes", NULL, "list known V8 heap object C++ classes",
 		dcmd_v8classes },
