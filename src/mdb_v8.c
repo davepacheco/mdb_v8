@@ -5971,6 +5971,48 @@ out:
 	return (rv);
 }
 
+static int
+jsarray_print_one(v8array_t *ap, unsigned int index, uintptr_t value,
+    void *uarg)
+{
+	boolean_t *opt_i = uarg;
+
+	if (*opt_i) {
+		mdb_printf("%d ", index);
+	}
+
+	mdb_printf("%p\n", value);
+	return (0);
+}
+
+/*
+ * XXX is there any downside to this not being a walker?  It's much easier to
+ * implement this way.  Does this allow it to be streaming and interruptible?
+ */
+/* ARGSUSED */
+static int
+dcmd_jsarray(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
+{
+	v8array_t *ap;
+	int memflags = UM_SLEEP | UM_GC;
+	boolean_t opt_i = B_FALSE;
+	int rv;
+
+	if (mdb_getopts(argc, argv, 'i', MDB_OPT_SETBITS, B_TRUE, &opt_i,
+	    NULL) != argc) {
+		return (DCMD_USAGE);
+	}
+
+	if ((ap = v8array_load(addr, memflags)) == NULL) {
+		mdb_warn("%p: failed to load JSArray\n", addr);
+		return (DCMD_ERR);
+	}
+
+	rv = v8array_iter_elements(ap, jsarray_print_one, &opt_i);
+	v8array_free(ap);
+	return (rv == 0 ? DCMD_OK : DCMD_ERR);
+}
+
 /* ARGSUSED */
 static int
 dcmd_jsclosure(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
@@ -6853,6 +6895,8 @@ static const mdb_dcmd_t v8_mdb_dcmds[] = {
 	/*
 	 * Commands to inspect JavaScript-level state
 	 */
+	{ "jsarray", ":[-i]", "print elements of a JavaScript array",
+		dcmd_jsarray },
 	{ "jsclosure", ":", "print variables referenced by a closure",
 		dcmd_jsclosure },
 	{ "jsconstructor", ":[-v]",
