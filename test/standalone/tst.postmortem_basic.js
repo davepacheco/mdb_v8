@@ -5,7 +5,7 @@
  */
 
 /*
- * Copyright (c) 2016, Joyent, Inc.
+ * Copyright (c) 2017, Joyent, Inc.
  */
 
 /*
@@ -16,10 +16,12 @@
  */
 
 var common = require('./common');
+
 var assert = require('assert');
+var fs = require('fs');
 var os = require('os');
 var path = require('path');
-var util = require('util');
+var vasync = require('vasync');
 
 /*
  * This class sets a variety of properties that together use most of the kinds
@@ -117,45 +119,16 @@ function Zoo()
 
 var obj1 = new Menagerie();
 var obj2 = new Zoo();
+var mdb, corefile;
 
-
-
-/*
- * Now we're going to fork ourselves to gcore
- */
-var spawn = require('child_process').spawn;
-var prefix = '/var/tmp/node';
-var corefile = prefix + '.' + process.pid;
-var gcore = spawn('gcore', [ '-o', prefix, process.pid + '' ]);
-var output = '';
-var unlinkSync = require('fs').unlinkSync;
-var args = [ '-S', corefile ];
-
-if (process.env.MDB_LIBRARY_PATH && process.env.MDB_LIBRARY_PATH != '')
-	args = args.concat([ '-L', process.env.MDB_LIBRARY_PATH ]);
-
-gcore.stderr.on('data', function (data) {
-	console.log('gcore: ' + data);
-});
-
-gcore.on('exit', function (code) {
-	if (code != 0) {
-		console.error('gcore exited with code ' + code);
-		process.exit(code);
-	}
-
-	var mdb = spawn('mdb', args, { stdio: 'pipe', 'env': { 'TZ': 'utc' } });
-
-	mdb.on('exit', function (code2) {
-		var retained = '; core retained as ' + corefile;
-
-		if (code2 != 0) {
-			console.error('mdb exited with code ' +
-			    util.inspect(code2) + retained);
-			process.exit(code2);
-		}
-
-		console.error(output);
+vasync.waterfall([
+    common.gcoreSelf,
+    common.createMdbSession,
+    function testMenagerie(mdbhdl, callback) {
+	mdb = mdbhdl;
+	mdb.runCmd('::findjsobjects -c Menagerie | ' +
+	    '::findjsobjects -p a_seqstring |' +
+	    '::findjsobjects | ::jsprint\n', function (output) {
 		assert.equal([
 		    '{',
 		    '    "a_seqstring": "my_string",',
@@ -188,6 +161,17 @@ gcore.on('exit', function (code) {
 		    '    "a_bool_true": true,',
 		    '    "a_bool_false": false,',
 		    '}',
+		    ''
+		].join('\n'), output);
+		callback();
+	});
+    },
+
+    function testZoo(callback) {
+	mdb.runCmd('::findjsobjects -c Zoo | ' +
+	    '::findjsobjects -p prop_01 |' +
+	    '::findjsobjects | ::jsprint\n', function (output) {
+		assert.equal([
 		    '{',
 		    '    "prop_00": "value_00",',
 		    '    "prop_01": "value_01",',
@@ -228,28 +212,14 @@ gcore.on('exit', function (code) {
 		    '    "prop_36": "value_36",',
 		    '}',
 		    ''
-		].join('\n'), output,
-		    'output mismatch' + retained);
-		unlinkSync(corefile);
-		process.exit(0);
+		].join('\n'), output);
+		callback();
 	});
-
-	mdb.stdout.on('data', function (data) {
-		output += data;
-	});
-
-	mdb.stderr.on('data', function (data) {
-		console.log('mdb stderr: ' + data);
-	});
-
-	var mod = util.format('::load %s ! cat > /dev/null\n',
-	    common.dmodpath());
-	mdb.stdin.write(mod);
-	mdb.stdin.write('::findjsobjects -c Menagerie | ');
-	mdb.stdin.write('::findjsobjects -p a_seqstring | ');
-	mdb.stdin.write('::findjsobjects | ::jsprint\n');
-	mdb.stdin.write('::findjsobjects -c Zoo | ');
-	mdb.stdin.write('::findjsobjects -p prop_01 |');
-	mdb.stdin.write('::findjsobjects | ::jsprint\n');
-	mdb.stdin.end();
+    }
+], function (err) {
+	if (mdb) {
+		mdb.finish(err);
+	} else if (err) {
+		throw (err);
+	}
 });
