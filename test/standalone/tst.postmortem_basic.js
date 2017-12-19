@@ -18,10 +18,6 @@
 var common = require('./common');
 
 var assert = require('assert');
-var fs = require('fs');
-var os = require('os');
-var path = require('path');
-var vasync = require('vasync');
 
 /*
  * This class sets a variety of properties that together use most of the kinds
@@ -119,13 +115,9 @@ function Zoo()
 
 var obj1 = new Menagerie();
 var obj2 = new Zoo();
-var mdb, corefile;
 
-vasync.waterfall([
-    common.gcoreSelf,
-    common.createMdbSession,
-    function testMenagerie(mdbhdl, callback) {
-	mdb = mdbhdl;
+common.standaloneTest([
+    function testMenagerie(mdb, callback) {
 	mdb.runCmd('::findjsobjects -c Menagerie | ' +
 	    '::findjsobjects -p a_seqstring |' +
 	    '::findjsobjects | ::jsprint\n', function (output) {
@@ -167,7 +159,7 @@ vasync.waterfall([
 	});
     },
 
-    function testZoo(callback) {
+    function testZoo(mdb, callback) {
 	mdb.runCmd('::findjsobjects -c Zoo | ' +
 	    '::findjsobjects -p prop_01 |' +
 	    '::findjsobjects | ::jsprint\n', function (output) {
@@ -217,9 +209,9 @@ vasync.waterfall([
 	});
     }
 ], function (err) {
-	if (mdb) {
-		mdb.finish(err);
-	} else if (err) {
+	if (err) {
 		throw (err);
 	}
+
+	console.log('%s passed', process.argv[1]);
 });

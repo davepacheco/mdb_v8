@@ -17,12 +17,14 @@ var childprocess = require('child_process');
 var events = require('events');
 var fs = require('fs');
 var path = require('path');
+var vasync = require('vasync');
 var VError = require('verror');
 
 /* Public interface */
 exports.dmodpath = dmodpath;
 exports.gcoreSelf = gcoreSelf;
 exports.createMdbSession = createMdbSession;
+exports.standaloneTest = standaloneTest;
 
 var MDB_SENTINEL = 'MDB_SENTINEL\n';
 
@@ -209,5 +211,47 @@ function createMdbSession(filename, callback)
 		mdb.runCmd('1000$w', function () {
 			callback(null, mdb);
 		});
+	});
+}
+
+/*
+ * Standalone test-cases do the following:
+ *
+ * - gcore the current process
+ * - start up MDB on the current process
+ * - invoke each of the specified functions as a vasync pipeline, with an
+ *   "MdbSession" as the sole initial argument
+ * - on success, clean up the core file that was created
+ */
+function standaloneTest(funcs, callback)
+{
+	var mdb;
+
+	vasync.waterfall([
+	    gcoreSelf,
+	    createMdbSession,
+	    function runTestPipeline(mdbhdl, wfcallback) {
+		mdb = mdbhdl;
+		vasync.pipeline({
+		    'funcs': funcs,
+		    'arg': mdbhdl
+		}, wfcallback);
+	    }
+	], function (err) {
+		if (!err) {
+			mdb.finish();
+			callback();
+			return;
+		}
+
+		if (mdb) {
+			err = new VError(err,
+			    'test failed (keeping core file %s)',
+			    mdb.mdb_file);
+		} else {
+			err = new VError(err, 'test failed');
+		}
+
+		callback(err);
 	});
 }
