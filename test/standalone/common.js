@@ -17,6 +17,7 @@ var childprocess = require('child_process');
 var events = require('events');
 var fs = require('fs');
 var path = require('path');
+var util = require('util');
 var vasync = require('vasync');
 var VError = require('verror');
 
@@ -88,6 +89,8 @@ function MdbSession()
 	this.mdb_output = '';	/* buffered output */
 }
 
+util.inherits(MdbSession, events.EventEmitter);
+
 MdbSession.prototype.runCmd = function (str, callback)
 {
 	assert.equal(typeof (str), 'string');
@@ -139,6 +142,7 @@ MdbSession.prototype.finish = function (error)
 {
 	assert.strictEqual(this.mdb_error, null,
 	    'already experienced fatal error');
+	process.removeListener('exit', this.mdb_onprocexit);
 
 	if (!this.mdb_exited) {
 		this.mdb_child.stdin.end();
@@ -212,6 +216,15 @@ function createMdbSession(filename, callback)
 			callback(null, mdb);
 		});
 	});
+
+	mdb.mdb_onprocexit = function (code) {
+		if (code === 0) {
+			throw (new Error('test exiting prematurely (' +
+			    'mdb session not finalized)'));
+		}
+	};
+
+	process.on('exit', mdb.mdb_onprocexit);
 }
 
 /*
