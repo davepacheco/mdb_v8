@@ -136,6 +136,11 @@ v8array_iter_elements(v8array_t *ap,
     int (*func)(v8array_t *, unsigned int, uintptr_t, void *), void *uarg)
 {
 	v8array_iteration_t iterate_state;
+
+	if (v8array_length(ap) == 0) {
+		return (0);
+	}
+
 	iterate_state.v8ai_array = ap;
 	iterate_state.v8ai_uarg = uarg;
 	iterate_state.v8ai_func = func;
