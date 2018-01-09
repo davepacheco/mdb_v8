@@ -101,6 +101,8 @@ MdbSession.prototype.runCmd = function (str, callback)
 	    'already experienced fatal error');
 	assert.strictEqual(this.mdb_exited, false,
 	    'mdb already exited');
+	assert.equal(str.charAt(str.length - 1), '\n',
+	    'command string must end in a newline');
 
 	assert.strictEqual(this.mdb_pending_callback, null);
 	this.mdb_pending_cmd = str;
@@ -200,7 +202,7 @@ function createMdbSession(filename, callback)
 
 	mdb.mdb_child.stderr.on('data', function (chunk) {
 		console.log('mdb: stderr: ' + chunk);
-		assert.ok(!loaded,
+		assert.ok(loaded,
 		    'dmod emitted stderr before ::load was complete');
 	});
 
@@ -212,7 +214,7 @@ function createMdbSession(filename, callback)
 		 * The '1000$w' sets the terminal width to a large value to keep
 		 * MDB from inserting newlines at the default 80 columns.
 		 */
-		mdb.runCmd('1000$w', function () {
+		mdb.runCmd('1000$w\n', function () {
 			callback(null, mdb);
 		});
 	});

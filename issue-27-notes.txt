@@ -1,28 +1,13 @@
 status:
 - see "changes", TODO below
 - test suite passes all Node versions, both 32-bit and 64-bit
-- working on an arrays test:
-  - want to add more test cases
-  - would like way to easily exercise a bunch of other test cases
-    - maybe: create a class whose constructor contains the number of elements
-      of the target array.  Then it assigns a property called arrayN, where N is
-      the target number of elements, to an array of size N.  Then we can do:
-      ::findjsobjects -c MyClass | ::jsprint -ad1 ! grep '    array' | sort > f
-      cat f | awk -F: '{print $1}' > g
-      ::cat g | ::jsarray
-
-      That should produce all of the arrays' contents in increasing order.
-      If we use different offsets for values, that should make it crystal clear.
 - XXX test suite now uses various modules that need to go into devDependencies
   and build needs to "npm install" them
 - see XXXs
-- make sure tests exercise the array printing
-  - particularly for arrays of size 0, 1, 3, 1023, 1024, 1025, 4095, 4096, 4097
-    (as those are boundaries used in the code)
-- ditto for "::walk jsarray"
 - update the other tests that use gcore to use my new mechanism
 - memory leak test
   - add it to the common test suite code?
+- update copyrights
 
 changes:
 - changed internal representation of arrays to better support large arrays
