@@ -97,13 +97,26 @@ function main()
 	});
 
 	/*
-	 * Generate tests for a few more exotic cases.  First, an array with a
+	 * Generate tests for more exotic cases.  First, an array with a
 	 * pre-defined length, where not all of the elements were specified.
 	 */
 	arr = testObject['array_predefined_length'] = new Array(8);
 	for (i = 1; i < 6; i++) {
 		arr[i] = eltvalue('array_predefined_length', i);
 	}
+	testFuncs.push(testPredefinedLengthJsprint);
+	testFuncs.push(testPredefinedLengthJsarray);
+
+	/*
+	 * Now, an array with a hole in it.
+	 */
+	arr = testObject['array_with_hole'] = new Array(7);
+	for (i = 0; i < 7; i++) {
+		arr[i] = eltvalue('array_with_hole', i);
+	}
+	delete (arr[3]);
+	testFuncs.push(testHoleJsprint);
+	testFuncs.push(testHoleJsarray);
 
 	/*
 	 * This is a little cheesy, but we set this property to a boolean value
@@ -306,6 +319,133 @@ function testArrayJsarray(targetLength, mdb, callback)
 
 		callback();
 	});
+}
+
+/*
+ * Verifies the "jsprint" output for the array with predefined length.
+ */
+function testPredefinedLengthJsprint(mdb, callback)
+{
+	var keyname, cmdstr;
+
+	keyname = 'array_predefined_length';
+	assert.equal(typeof (testObjectAddr), 'string');
+	assert.equal(typeof (testArrayAddrs[keyname]), 'string',
+	    'did not find address of array ' + keyname);
+	cmdstr = util.format('%s::jsprint\n', testArrayAddrs[keyname]);
+	mdb.runCmd(cmdstr, function (output) {
+		/*
+		 * We expect special "hole" values for the elements that were
+		 * not set.
+		 */
+		assert.equal(output, [
+		    '[',
+		    '    hole,',
+		    '    "array_predefined_length_element_1",',
+		    '    "array_predefined_length_element_2",',
+		    '    "array_predefined_length_element_3",',
+		    '    "array_predefined_length_element_4",',
+		    '    "array_predefined_length_element_5",',
+		    '    hole,',
+		    '    hole,',
+		    ']',
+		    ''
+		].join('\n'));
+		callback();
+	});
+}
+
+/*
+ * Verifies the "jsarray" output for the array with predefined length.
+ */
+function testPredefinedLengthJsarray(mdb, callback)
+{
+	var keyname, cmdstr;
+
+	keyname = 'array_predefined_length';
+	assert.equal(typeof (testObjectAddr), 'string');
+	assert.equal(typeof (testArrayAddrs[keyname]), 'string',
+	    'did not find address of array ' + keyname);
+	cmdstr = util.format('%s::jsarray | ::jsprint\n',
+	    testArrayAddrs[keyname]);
+	mdb.runCmd(cmdstr, function (output) {
+		/* See "::jsprint" analog above. */
+		assert.equal(output, [
+		    'hole',
+		    '"array_predefined_length_element_1"',
+		    '"array_predefined_length_element_2"',
+		    '"array_predefined_length_element_3"',
+		    '"array_predefined_length_element_4"',
+		    '"array_predefined_length_element_5"',
+		    'hole',
+		    'hole',
+		    ''
+		].join('\n'));
+		callback();
+	});
+}
+
+/*
+ * Verifies the "jsprint" output for the array with a deleted element.
+ */
+function testHoleJsprint(mdb, callback)
+{
+	var keyname, cmdstr;
+
+	keyname = 'array_with_hole';
+	assert.equal(typeof (testObjectAddr), 'string');
+	assert.equal(typeof (testArrayAddrs[keyname]), 'string',
+	    'did not find address of array ' + keyname);
+	cmdstr = util.format('%s::jsprint\n', testArrayAddrs[keyname]);
+	mdb.runCmd(cmdstr, function (output) {
+		/*
+		 * We expect special "hole" values for elements that were
+		 * deleted.
+		 */
+		assert.equal(output, [
+		    '[',
+		    '    "array_with_hole_element_0",',
+		    '    "array_with_hole_element_1",',
+		    '    "array_with_hole_element_2",',
+		    '    hole,',
+		    '    "array_with_hole_element_4",',
+		    '    "array_with_hole_element_5",',
+		    '    "array_with_hole_element_6",',
+		    ']',
+		    ''
+		].join('\n'));
+		callback();
+	});
+}
+
+/*
+ * Verifies the "jsarray" output for the array with a deleted element.
+ */
+function testHoleJsarray(mdb, callback)
+{
+	var keyname, cmdstr;
+
+	keyname = 'array_with_hole';
+	assert.equal(typeof (testObjectAddr), 'string');
+	assert.equal(typeof (testArrayAddrs[keyname]), 'string',
+	    'did not find address of array ' + keyname);
+	cmdstr = util.format('%s::jsarray | ::jsprint\n',
+	    testArrayAddrs[keyname]);
+	mdb.runCmd(cmdstr, function (output) {
+		/* See "::jsprint" analog above. */
+		assert.equal(output, [
+		    '"array_with_hole_element_0"',
+		    '"array_with_hole_element_1"',
+		    '"array_with_hole_element_2"',
+		    'hole',
+		    '"array_with_hole_element_4"',
+		    '"array_with_hole_element_5"',
+		    '"array_with_hole_element_6"',
+		    ''
+		].join('\n'));
+		callback();
+	});
+
 }
 
 main();
