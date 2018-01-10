@@ -5987,10 +5987,6 @@ jsarray_print_one(v8array_t *ap, unsigned int index, uintptr_t value,
 	return (0);
 }
 
-/*
- * XXX is there any downside to this not being a walker?  It's much easier to
- * implement this way.  Does this allow it to be streaming and interruptible?
- */
 /* ARGSUSED */
 static int
 dcmd_jsarray(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
@@ -6755,6 +6751,83 @@ dcmd_v8warnings(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 	return (DCMD_OK);
 }
 
+typedef struct jselement_walk_data {
+	mdb_walk_state_t *jsew_wsp;
+	int		 jsew_memflags;
+	int		 jsew_last;
+	v8array_t	 *jsew_array;
+} jselement_walk_data_t;
+
+static int
+walk_jselement_init(mdb_walk_state_t *wsp)
+{
+	uintptr_t addr;
+	int memflags = UM_GC | UM_SLEEP;
+	jselement_walk_data_t *jsew;
+
+	if ((addr = wsp->walk_addr) == NULL) {
+		mdb_warn("'jselement' does not support global walks\n");
+		return (WALK_ERR);
+	}
+
+	jsew = mdb_zalloc(sizeof (*jsew), memflags);
+	assert(jsew != NULL); /* using UM_SLEEP */
+	jsew->jsew_wsp = wsp;
+	jsew->jsew_memflags = memflags;
+	jsew->jsew_last = WALK_DONE;
+	jsew->jsew_array = v8array_load(addr, memflags);
+
+	if (jsew->jsew_array == NULL) {
+		maybefree(jsew, sizeof (*jsew), memflags);
+		return (WALK_ERR);
+	}
+
+	wsp->walk_data = jsew;
+	return (WALK_NEXT);
+}
+
+/* ARGSUSED */
+static int
+walk_jsarray_iter_one(v8array_t *ap, unsigned int index, uintptr_t value,
+    void *uarg)
+{
+	jselement_walk_data_t *jsew = uarg;
+	mdb_walk_state_t *wsp = jsew->jsew_wsp;
+
+	jsew->jsew_last = wsp->walk_callback(value, NULL, wsp->walk_cbdata);
+	return (jsew->jsew_last == WALK_NEXT ? 0 : -1);
+}
+
+static int
+walk_jselement_step(mdb_walk_state_t *wsp)
+{
+	jselement_walk_data_t *jsew;
+	v8array_t *ap;
+	int rv;
+
+	jsew = wsp->walk_data;
+	assert(jsew->jsew_wsp == wsp);
+	ap = jsew->jsew_array;
+	rv = v8array_iter_elements(ap, walk_jsarray_iter_one, jsew);
+	return (rv == 0 ? WALK_DONE : jsew->jsew_last);
+}
+
+static void
+walk_jselement_fini(mdb_walk_state_t *wsp)
+{
+	jselement_walk_data_t *jsew;
+	v8array_t *ap;
+
+	assert(wsp->walk_data != NULL);
+	jsew = wsp->walk_data;
+	assert(jsew->jsew_wsp == wsp);
+	wsp->walk_data = NULL;
+
+	ap = jsew->jsew_array;
+	v8array_free(ap);
+	maybefree(jsew, sizeof (*jsew), jsew->jsew_memflags);
+}
+
 static int
 walk_jsframes_init(mdb_walk_state_t *wsp)
 {
@@ -6959,6 +7032,8 @@ static const mdb_dcmd_t v8_mdb_dcmds[] = {
 };
 
 static const mdb_walker_t v8_mdb_walkers[] = {
+	{ "jselement", "walk elements of a JavaScript array",
+		walk_jselement_init, walk_jselement_step, walk_jselement_fini },
 	{ "jsframe", "walk V8 JavaScript stack frames",
 		walk_jsframes_init, walk_jsframes_step },
 	{ "jsprop", "walk property values for an object",

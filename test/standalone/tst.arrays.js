@@ -94,6 +94,7 @@ function main()
 
 		testFuncs.push(testArrayJsprint.bind(null, targetLength));
 		testFuncs.push(testArrayJsarray.bind(null, targetLength));
+		testFuncs.push(testArrayWalker.bind(null, targetLength));
 	});
 
 	/*
@@ -306,6 +307,34 @@ function testArrayJsarray(targetLength, mdb, callback)
 	assert.equal(typeof (testArrayAddrs[keyname]), 'string',
 	    'did not find address of array ' + keyname);
 	cmdstr = util.format('%s::jsarray | ::jsprint\n',
+	    testArrayAddrs[keyname]);
+	mdb.runCmd(cmdstr, function (output) {
+		var lines, i;
+
+		lines = output.split('\n');
+		assert.ok(lines.length > 0);
+		assert.strictEqual(lines[lines.length - 1].length, 0,
+		    'last line was not empty');
+		assert.strictEqual(lines.length, targetLength + 1,
+		    'unexpected number of lines');
+		for (i = 0; i < targetLength; i++) {
+			assert.equal(lines[i],
+			    '"' + eltvalue(keyname, i) + '"');
+		}
+
+		callback();
+	});
+}
+
+function testArrayWalker(targetLength, mdb, callback)
+{
+	var keyname, cmdstr;
+
+	keyname = util.format('array_%d', targetLength);
+	assert.equal(typeof (testObjectAddr), 'string');
+	assert.equal(typeof (testArrayAddrs[keyname]), 'string',
+	    'did not find address of array ' + keyname);
+	cmdstr = util.format('%s::walk jselement | ::jsprint\n',
 	    testArrayAddrs[keyname]);
 	mdb.runCmd(cmdstr, function (output) {
 		var lines, i;

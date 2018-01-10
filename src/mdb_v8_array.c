@@ -145,6 +145,7 @@ v8array_iter_elements(v8array_t *ap,
 	iterate_state.v8ai_uarg = uarg;
 	iterate_state.v8ai_func = func;
 	iterate_state.v8ai_rv = 0;
-	return (v8fixedarray_iter_elements(ap->v8array_elements,
-	    v8array_iter_one, &iterate_state));
+	(void) v8fixedarray_iter_elements(ap->v8array_elements,
+	    v8array_iter_one, &iterate_state);
+	return (iterate_state.v8ai_rv);
 }
