@@ -1,18 +1,46 @@
 status:
-- see "changes", TODO below
-- test suite passes all Node versions, both 32-bit and 64-bit
-- XXX test suite now uses various modules that need to go into devDependencies
-  and build needs to "npm install" them
-- see XXXs
-- update the other tests that use gcore to use my new mechanism
-- memory leak test
-  - add it to the common test suite code?
-- update copyrights
+- update the other tests that use gcore to use my new mechanism?
 
-changes:
-- changed internal representation of arrays to better support large arrays
-- update jsprint to use this (still sucks because of the way jsprint works)
-- update v8array to use this (not much difference?)
-- **no longer print lots of "hole" values on the end of long arrays**
-- add "::jsarray" command
-- generalize test suite common code for use in more places
+Final approach:
+- see XXXs
+- file ticket for updating the rest of the test suite
+- rerun test suite on all Node versions, both 32-bit and 64-bit
+- document the manual testing I did:
+  - see below
+  - memory leak test
+  - failures induced in test code
+    - stderr before load completes
+    - broken jsarray output
+    - broken jsprint output
+    - streaming test:
+      - ::jsarray on large array: immediately get results, rapid paging
+      - ::jsprint on same array: no dice for a while
+      - `truss` confirms the behavior
+- file tickets for (or document in other tickets) the changes here:
+  - changed internal representation of arrays to better support large arrays
+  - update jsprint to use this (still sucks because of the way jsprint works)
+  - update v8array to use this (not much difference?)
+  - **no longer print lots of "hole" values on the end of long arrays**
+  - add "::jsarray" command
+  - generalize test suite common code for use in more places
+  - test suite can now use packages (but must be careful -- probably no binaries)
+
+Tests (as of commit 1691d5992833b37b83bd88d2a5b04b99d4e1867c):
+- `make prepush` from clean workspace
+  - builds everything, installs packages, runs tests
+- `make prepush` from there
+  - re-runs checks and test suite -- no rebuild or package install
+- `make` after that
+  - does basically nothing
+- `make clean`
+  - removes everything
+- `make`
+  - rebuilds program (does not install modules)
+- `make` again
+  - does basically nothing
+- `make test`
+  - builds, installs packages, runs test suite
+- `make -n test`
+  - only will run test suite
+- touch package.json; `make -n test`
+  - rebuilds packages, then will run test suite
