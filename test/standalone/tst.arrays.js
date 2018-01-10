@@ -118,6 +118,10 @@ function main()
 	testFuncs.push(testHoleJsprint);
 	testFuncs.push(testHoleJsarray);
 
+	testFuncs.push(function (mdb, callback) {
+		mdb.checkMdbLeaks(callback);
+	});
+
 	/*
 	 * This is a little cheesy, but we set this property to a boolean value
 	 * immediately before saving the core file to minimize the chance that

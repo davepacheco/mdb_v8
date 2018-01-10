@@ -76,8 +76,10 @@ function gcoreSelf(callback)
 function MdbSession()
 {
 	this.mdb_child = null;	/* child process handle */
-	this.mdb_file = null;	/* file name */
+	this.mdb_target_name = null;	/* file name or pid */
 	this.mdb_args = [];	/* extra CLI arguments */
+	this.mdb_target_type = null;	/* "file" or "pid" */
+	this.mdb_remove_on_success = false;
 
 	/* information about current pending command */
 	this.mdb_pending_cmd = null;
@@ -87,6 +89,7 @@ function MdbSession()
 	this.mdb_exited = false;
 	this.mdb_error = null;
 	this.mdb_output = '';	/* buffered output */
+	this.mdb_findleaks = null;
 }
 
 util.inherits(MdbSession, events.EventEmitter);
@@ -151,26 +154,85 @@ MdbSession.prototype.finish = function (error)
 	}
 
 	if (error) {
-		console.error('test failed; saving core file');
 		this.mdb_error = new VError(error,
 		    'error running test');
 		this.emit('error', this.mdb_error);
 		return;
 	}
 
-	fs.unlinkSync(this.mdb_file);
+	if (this.mdb_remove_on_success && this.mdb_target_type == 'file') {
+		fs.unlinkSync(this.mdb_target_name);
+	}
+};
+
+MdbSession.prototype.checkMdbLeaks = function (callback)
+{
+	var self = this;
+	var leakmdb;
+
+	/*
+	 * Attach another MDB session to MDB itself so that we can run
+	 * "findleaks" to look for leaks in "mdb" and "mdb_v8".  At this point,
+	 * we only print this information out, rather than trying to parse it
+	 * and take action.  We also rely on the underlying MdbSession's
+	 * transcript rather than explicitly printing out the output.
+	 */
+	assert.strictEqual(this.mdb_findleaks, null,
+	    'mdb leak check already pending');
+	leakmdb = this.mdb_findleaks = createMdbSession({
+	    'targetType': 'pid',
+	    'targetName': this.mdb_child.pid.toString(),
+	    'loadDmod': false,
+	    'removeOnSuccess': false
+	}, function (err) {
+		assert.equal(self.mdb_findleaks, leakmdb);
+
+		if (err) {
+			self.mdb_findleaks = null;
+			callback(new VError(err, 'attaching mdb to itself'));
+			return;
+		}
+
+		leakmdb.runCmd('::findleaks -d\n', function () {
+			assert.equal(self.mdb_findleaks, leakmdb);
+			self.mdb_findleaks = null;
+			leakmdb.finish();
+			callback();
+		});
+	});
 };
 
 /*
  * Opens an MDB session.  Use runCmd() to invoke a command and get output.
  */
-function createMdbSession(filename, callback)
+function createMdbSessionFile(filename, callback)
 {
-	var mdb, cmdstr;
+	return (createMdbSession({
+	    'targetType': 'file',
+	    'targetName': filename,
+	    'loadDmod': true,
+	    'removeOnSuccess': true
+	}, callback));
+}
+
+function createMdbSession(args, callback)
+{
+	var mdb, loaddmod;
 	var loaded = false;
 
+	assert.equal('object', typeof (args));
+	assert.equal('string', typeof (args.targetType));
+	assert.equal('string', typeof (args.targetName));
+	assert.equal('boolean', typeof (args.removeOnSuccess));
+	assert.equal('boolean', typeof (args.loadDmod));
+
+	assert.ok(args.targetType == 'file' || args.targetType == 'pid');
+	loaddmod = args.loadDmod;
+
 	mdb = new MdbSession();
-	mdb.mdb_file = filename;
+	mdb.mdb_target_name = args.targetName;
+	mdb.mdb_target_type = args.targetType;
+	mdb.mdb_remove_on_success = args.removeOnSuccess;
 
 	/* Use the "-S" flag to avoid interference from a user's .mdbrc file. */
 	mdb.mdb_args.push('-S');
@@ -181,12 +243,21 @@ function createMdbSession(filename, callback)
 		mdb.mdb_args.push(process.env['MDB_LIBRARY_PATH']);
 	}
 
-	mdb.mdb_args.push(mdb.mdb_file);
+	if (args.targetType == 'file') {
+		mdb.mdb_args.push(args.targetName);
+	} else {
+		mdb.mdb_args.push('-p');
+		mdb.mdb_args.push(args.targetName);
+	}
 
 	mdb.mdb_child = childprocess.spawn('mdb',
 	    mdb.mdb_args, {
 		'stdio': 'pipe',
-		'env': { 'TZ': 'utc' }
+		'env': {
+		    'TZ': 'utc',
+		    'UMEM_DEBUG': 'default',
+		    'UMEM_LOGGING': 'transaction=8M,fail'
+		}
 	    });
 
 	mdb.mdb_child.on('exit', function (code) {
@@ -200,33 +271,39 @@ function createMdbSession(filename, callback)
 		}
 	});
 
-	mdb.mdb_child.stderr.on('data', function (chunk) {
-		console.log('mdb: stderr: ' + chunk);
-		assert.ok(loaded,
-		    'dmod emitted stderr before ::load was complete');
-	});
-
-	cmdstr = '::load ' + dmodpath() + '\n';
-	mdb.runCmd(cmdstr, function () {
-		loaded = true;
-
-		/*
-		 * The '1000$w' sets the terminal width to a large value to keep
-		 * MDB from inserting newlines at the default 80 columns.
-		 */
-		mdb.runCmd('1000$w\n', function () {
-			callback(null, mdb);
-		});
-	});
-
 	mdb.mdb_onprocexit = function (code) {
 		if (code === 0) {
 			throw (new Error('test exiting prematurely (' +
 			    'mdb session not finalized)'));
 		}
 	};
-
 	process.on('exit', mdb.mdb_onprocexit);
+
+	mdb.mdb_child.stderr.on('data', function (chunk) {
+		console.log('mdb: stderr: ' + chunk);
+		assert.ok(!loaddmod || loaded,
+		    'dmod emitted stderr before ::load was complete');
+	});
+
+	/*
+	 * The '1000$w' sets the terminal width to a large value to keep MDB
+	 * from inserting newlines at the default 80 columns.
+	 */
+	mdb.runCmd('1000$w\n', function () {
+		var cmdstr;
+		if (!loaddmod) {
+			callback(null, mdb);
+			return;
+		}
+
+		cmdstr = '::load ' + dmodpath() + '\n';
+		mdb.runCmd(cmdstr, function () {
+			loaded = true;
+			callback(null, mdb);
+		});
+	});
+
+	return (mdb);
 }
 
 /*
@@ -244,7 +321,7 @@ function standaloneTest(funcs, callback)
 
 	vasync.waterfall([
 	    gcoreSelf,
-	    createMdbSession,
+	    createMdbSessionFile,
 	    function runTestPipeline(mdbhdl, wfcallback) {
 		mdb = mdbhdl;
 		vasync.pipeline({
@@ -262,7 +339,7 @@ function standaloneTest(funcs, callback)
 		if (mdb) {
 			err = new VError(err,
 			    'test failed (keeping core file %s)',
-			    mdb.mdb_file);
+			    mdb.mdb_target_name);
 		} else {
 			err = new VError(err, 'test failed');
 		}

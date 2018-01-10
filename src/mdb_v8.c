@@ -3774,6 +3774,7 @@ jsobj_print_jsarray(uintptr_t addr, jsobj_print_t *jsop)
 
 	len = v8array_length(ap);
 	if (len == 0) {
+		v8array_free(ap);
 		(void) bsnprintf(bufp, lenp, "[]");
 		return (0);
 	}
@@ -3787,6 +3788,7 @@ jsobj_print_jsarray(uintptr_t addr, jsobj_print_t *jsop)
 		(void) v8array_iter_elements(ap, jsobj_print_jsarray_one,
 		    &descend);
 		(void) bsnprintf(bufp, lenp, " ]");
+		v8array_free(ap);
 		return (0);
 	}
 
@@ -3794,7 +3796,7 @@ jsobj_print_jsarray(uintptr_t addr, jsobj_print_t *jsop)
 	(void) v8array_iter_elements(ap, jsobj_print_jsarray_one, &descend);
 	(void) bsnprintf(bufp, lenp, "%*s", indent, "");
 	(void) bsnprintf(bufp, lenp, "]");
-
+	v8array_free(ap);
 	return (0);
 }
 
