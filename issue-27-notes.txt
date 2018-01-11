@@ -1,19 +1,17 @@
 Current status:
-- I have implemented a walker for ::jselement!
-- Next, I want to clean up the test case that I added for ::walk jselement.
-  This should share more code with the test case for ::jsarray.
-- Next, I want to add the "::walk jselement" test to the other test cases in
-  that file.
-- Next, I want to update dcmd_jsarray() to use that walker.  (It can pass
-  through opt_i to its callback.)
+- Next, I want to update dcmd_jsarray() to use the walker.  (It can pass through
+  opt_i to its callback.)
+- Add test cases for "::jsarray -i"?
 - Next, add test cases for pointers: 0, testObject to both ::jsarray and ::walk
-  jsarray
+  jsarray (to test invalid cases)
 - Add documentation
+- Finish up versioning changes
 
 Final approach:
 - see XXXs
 - file ticket for updating the rest of the test suite
 - rerun test suite on all Node versions, both 32-bit and 64-bit
+- update changelog and version file
 - rerun / document the manual testing I did:
   - see below
   - core files kept around when they should be, not when they're not

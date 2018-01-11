@@ -11,7 +11,7 @@
 /*
  * tst.arrays.js: This test case generates a number of arrays of various sizes,
  * finds them with "findjsobjects", then prints them out with both "jsprint" and
- * "jsarray".
+ * "jsarray".  Then it does the same with some specially-crafted arrays.
  *
  * Like most of the standalone tests, this test works by creating a bunch of
  * structures in memory, using gcore(1M) to save a core file of the current
@@ -45,13 +45,36 @@ var testCaseLengths = [
 ];
 
 /*
- * Array of asynchronous test functions, extended in main() for
- * automatically-generated test cases.
+ * There are a few "ad hoc" test cases -- those with arrays defined explicitly
+ * in code below, rather than auto-generated to be a certain length.  For each
+ * test case, we initialize the array itself in main().  As part of the test, we
+ * invoke dcmds and a walker to dump the array and check the output against the
+ * expected elements defined below.
  */
-var testFuncs = [
-    findTestObjectAddr,
-    findArrayAddrs
-];
+var testCasesAdHoc = [ {
+    'name': 'predefined_length',
+    'expectedElements': [
+	'hole',
+	'"array_predefined_length_element_1"',
+	'"array_predefined_length_element_2"',
+	'"array_predefined_length_element_3"',
+	'"array_predefined_length_element_4"',
+	'"array_predefined_length_element_5"',
+	'hole',
+	'hole'
+    ]
+}, {
+    'name': 'with_hole',
+    'expectedElements': [
+	'"array_with_hole_element_0"',
+	'"array_with_hole_element_1"',
+	'"array_with_hole_element_2"',
+	'hole',
+	'"array_with_hole_element_4"',
+	'"array_with_hole_element_5"',
+	'"array_with_hole_element_6"'
+    ]
+} ];
 
 /*
  * "testObject" is the root object from which we will hang the objects used for
@@ -70,6 +93,12 @@ var testArrayAddrs = {};
 function main()
 {
 	var arr, i;
+	var testFuncs;
+
+	testFuncs = [
+	    findTestObjectAddr,
+	    findArrayAddrs
+	];
 
 	/*
 	 * Generate actual test cases for the array lengths configured above.
@@ -98,26 +127,37 @@ function main()
 	});
 
 	/*
-	 * Generate tests for more exotic cases.  First, an array with a
+	 * Generate tests for more ad hoc cases.  First, try an array with a
 	 * pre-defined length, where not all of the elements were specified.
 	 */
 	arr = testObject['array_predefined_length'] = new Array(8);
 	for (i = 1; i < 6; i++) {
 		arr[i] = eltvalue('array_predefined_length', i);
 	}
-	testFuncs.push(testPredefinedLengthJsprint);
-	testFuncs.push(testPredefinedLengthJsarray);
 
 	/*
-	 * Now, an array with a hole in it.
+	 * Now, try an array with a hole in it.
 	 */
 	arr = testObject['array_with_hole'] = new Array(7);
 	for (i = 0; i < 7; i++) {
 		arr[i] = eltvalue('array_with_hole', i);
 	}
 	delete (arr[3]);
-	testFuncs.push(testHoleJsprint);
-	testFuncs.push(testHoleJsarray);
+
+	testCasesAdHoc.forEach(function (testcase) {
+		testFuncs.push(testArrayAdHoc.bind(null, {
+		    'testCase': testcase,
+		    'flavor': 'jsprint'
+		}));
+		testFuncs.push(testArrayAdHoc.bind(null, {
+		    'testCase': testcase,
+		    'flavor': 'jsarray'
+		}));
+		testFuncs.push(testArrayAdHoc.bind(null, {
+		    'testCase': testcase,
+		    'flavor': 'jselement'
+		}));
+	});
 
 	testFuncs.push(function (mdb, callback) {
 		mdb.checkMdbLeaks(callback);
@@ -309,23 +349,15 @@ function testArrayJsarray(targetLength, mdb, callback)
 	cmdstr = util.format('%s::jsarray | ::jsprint\n',
 	    testArrayAddrs[keyname]);
 	mdb.runCmd(cmdstr, function (output) {
-		var lines, i;
-
-		lines = output.split('\n');
-		assert.ok(lines.length > 0);
-		assert.strictEqual(lines[lines.length - 1].length, 0,
-		    'last line was not empty');
-		assert.strictEqual(lines.length, targetLength + 1,
-		    'unexpected number of lines');
-		for (i = 0; i < targetLength; i++) {
-			assert.equal(lines[i],
-			    '"' + eltvalue(keyname, i) + '"');
-		}
-
+		verifyOutputArray(keyname, targetLength, output);
 		callback();
 	});
 }
 
+/*
+ * Invoked for each of the test cases generated from "testCaseLengths" to verify
+ * the "::walk jselement" output for the array.
+ */
 function testArrayWalker(targetLength, mdb, callback)
 {
 	var keyname, cmdstr;
@@ -337,148 +369,106 @@ function testArrayWalker(targetLength, mdb, callback)
 	cmdstr = util.format('%s::walk jselement | ::jsprint\n',
 	    testArrayAddrs[keyname]);
 	mdb.runCmd(cmdstr, function (output) {
-		var lines, i;
+		verifyOutputArray(keyname, targetLength, output);
+		callback();
+	});
+}
 
-		lines = output.split('\n');
-		assert.ok(lines.length > 0);
-		assert.strictEqual(lines[lines.length - 1].length, 0,
-		    'last line was not empty');
-		assert.strictEqual(lines.length, targetLength + 1,
-		    'unexpected number of lines');
-		for (i = 0; i < targetLength; i++) {
-			assert.equal(lines[i],
-			    '"' + eltvalue(keyname, i) + '"');
+/*
+ * Common function for validating the output of "::walk jselement | ::jsprint"
+ * and "::jsarray | ::jsprint" for the auto-generated arrays.
+ */
+function verifyOutputArray(keyname, targetLength, output)
+{
+	var lines, i;
+
+	lines = output.split('\n');
+	assert.ok(lines.length > 0);
+	assert.strictEqual(lines[lines.length - 1].length, 0,
+	    'last line was not empty');
+	assert.strictEqual(lines.length, targetLength + 1,
+	    'unexpected number of lines');
+	for (i = 0; i < targetLength; i++) {
+		assert.equal(lines[i], '"' + eltvalue(keyname, i) + '"');
+	}
+}
+
+/*
+ * testArrayAdHoc executes a single dcmd for a specific one of the
+ * "testCasesAdHoc" defined above and compares the output against what's
+ * expected.  Named arguments:
+ *
+ *    testCase (object)         one of the elements of testCasesAdHoc, which
+ *                              should have:
+ *
+ *      name (string)           name of the test case.  There must be a
+ *                              corresponding array in testObject, named after
+ *                              this name in the same way as for the
+ *                              auto-generated test cases.  (See main() for
+ *                              where these arrays are defined.)
+ *
+ *     expectedElements (array) list of the elements expected in the array.
+ *                              These are specifically hardcoded separately from
+ *                              the definition of the array as a cross-check to
+ *                              make sure we've got what we expected.
+ *
+ *   flavor (string)		one of "jsprint", "jsarray", or "jselement",
+ *   				which indicates which dcmd to run.
+ */
+function testArrayAdHoc(args, mdb, callback)
+{
+	var keyname, cmdstr, flavor;
+	var expectedElements, expectedOutput;
+
+	assert.equal('object', typeof (args));
+	assert.equal('object', typeof (args.testCase));
+	assert.equal('string', typeof (args.testCase.name));
+	assert.equal('string', typeof (args.flavor));
+	assert.ok(Array.isArray(args.testCase.expectedElements));
+	assert.ok([ 'jsprint', 'jsarray', 'jselement' ].indexOf(
+	    args.flavor) != -1,
+	    'unrecognized test case flavor: ' + args.flavor);
+	assert.equal(typeof (testObjectAddr), 'string');
+
+	keyname = 'array_' + args.testCase.name;
+	assert.ok(testObject.hasOwnProperty(keyname),
+	    'ad-hoc test case "' + keyname + '" has no array defined');
+	assert.equal(typeof (testArrayAddrs[keyname]), 'string',
+	    'did not find address of array ' + keyname);
+
+	expectedElements = args.testCase.expectedElements;
+	cmdstr = testArrayAddrs[keyname];
+	flavor = args.flavor;
+
+	if (flavor == 'jsprint') {
+		/*
+		 * For "::jsprint", the expected output includes the leading
+		 * "[" and the trailing "]", and the elements in between are
+		 * indented and end with a comma.
+		 */
+		expectedOutput = util.format('[\n%s]\n',
+		    expectedElements.map(function (elt) {
+			return ('    ' + elt + ',\n');
+		    }).join(''));
+		cmdstr += '::jsprint\n';
+	} else {
+		/*
+		 * For both "::jsarray | ::jsprint" and "::walk jsarray |
+		 * ::jsprint", the output consists of the expected elements with
+		 * a newline after each line.
+		 */
+		expectedOutput = expectedElements.join('\n') + '\n';
+		if (flavor == 'jsarray') {
+			cmdstr += '::jsarray | ::jsprint\n';
+		} else {
+			cmdstr += '::walk jselement | ::jsprint\n';
 		}
+	}
 
-		callback();
-	});
-}
-
-/*
- * Verifies the "jsprint" output for the array with predefined length.
- */
-function testPredefinedLengthJsprint(mdb, callback)
-{
-	var keyname, cmdstr;
-
-	keyname = 'array_predefined_length';
-	assert.equal(typeof (testObjectAddr), 'string');
-	assert.equal(typeof (testArrayAddrs[keyname]), 'string',
-	    'did not find address of array ' + keyname);
-	cmdstr = util.format('%s::jsprint\n', testArrayAddrs[keyname]);
 	mdb.runCmd(cmdstr, function (output) {
-		/*
-		 * We expect special "hole" values for the elements that were
-		 * not set.
-		 */
-		assert.equal(output, [
-		    '[',
-		    '    hole,',
-		    '    "array_predefined_length_element_1",',
-		    '    "array_predefined_length_element_2",',
-		    '    "array_predefined_length_element_3",',
-		    '    "array_predefined_length_element_4",',
-		    '    "array_predefined_length_element_5",',
-		    '    hole,',
-		    '    hole,',
-		    ']',
-		    ''
-		].join('\n'));
+		assert.equal(output, expectedOutput);
 		callback();
 	});
-}
-
-/*
- * Verifies the "jsarray" output for the array with predefined length.
- */
-function testPredefinedLengthJsarray(mdb, callback)
-{
-	var keyname, cmdstr;
-
-	keyname = 'array_predefined_length';
-	assert.equal(typeof (testObjectAddr), 'string');
-	assert.equal(typeof (testArrayAddrs[keyname]), 'string',
-	    'did not find address of array ' + keyname);
-	cmdstr = util.format('%s::jsarray | ::jsprint\n',
-	    testArrayAddrs[keyname]);
-	mdb.runCmd(cmdstr, function (output) {
-		/* See "::jsprint" analog above. */
-		assert.equal(output, [
-		    'hole',
-		    '"array_predefined_length_element_1"',
-		    '"array_predefined_length_element_2"',
-		    '"array_predefined_length_element_3"',
-		    '"array_predefined_length_element_4"',
-		    '"array_predefined_length_element_5"',
-		    'hole',
-		    'hole',
-		    ''
-		].join('\n'));
-		callback();
-	});
-}
-
-/*
- * Verifies the "jsprint" output for the array with a deleted element.
- */
-function testHoleJsprint(mdb, callback)
-{
-	var keyname, cmdstr;
-
-	keyname = 'array_with_hole';
-	assert.equal(typeof (testObjectAddr), 'string');
-	assert.equal(typeof (testArrayAddrs[keyname]), 'string',
-	    'did not find address of array ' + keyname);
-	cmdstr = util.format('%s::jsprint\n', testArrayAddrs[keyname]);
-	mdb.runCmd(cmdstr, function (output) {
-		/*
-		 * We expect special "hole" values for elements that were
-		 * deleted.
-		 */
-		assert.equal(output, [
-		    '[',
-		    '    "array_with_hole_element_0",',
-		    '    "array_with_hole_element_1",',
-		    '    "array_with_hole_element_2",',
-		    '    hole,',
-		    '    "array_with_hole_element_4",',
-		    '    "array_with_hole_element_5",',
-		    '    "array_with_hole_element_6",',
-		    ']',
-		    ''
-		].join('\n'));
-		callback();
-	});
-}
-
-/*
- * Verifies the "jsarray" output for the array with a deleted element.
- */
-function testHoleJsarray(mdb, callback)
-{
-	var keyname, cmdstr;
-
-	keyname = 'array_with_hole';
-	assert.equal(typeof (testObjectAddr), 'string');
-	assert.equal(typeof (testArrayAddrs[keyname]), 'string',
-	    'did not find address of array ' + keyname);
-	cmdstr = util.format('%s::jsarray | ::jsprint\n',
-	    testArrayAddrs[keyname]);
-	mdb.runCmd(cmdstr, function (output) {
-		/* See "::jsprint" analog above. */
-		assert.equal(output, [
-		    '"array_with_hole_element_0"',
-		    '"array_with_hole_element_1"',
-		    '"array_with_hole_element_2"',
-		    'hole',
-		    '"array_with_hole_element_4"',
-		    '"array_with_hole_element_5"',
-		    '"array_with_hole_element_6"',
-		    ''
-		].join('\n'));
-		callback();
-	});
-
 }
 
 main();
