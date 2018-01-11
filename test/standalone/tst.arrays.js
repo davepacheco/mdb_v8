@@ -74,6 +74,13 @@ var testCasesAdHoc = [ {
 	'"array_with_hole_element_5"',
 	'"array_with_hole_element_6"'
     ]
+}, {
+    'name': 'sliced',
+    'expectedElements': [
+	'"array_1023_element_700"',
+	'"array_1023_element_701"',
+	'"array_1023_element_702"'
+    ]
 } ];
 
 /*
@@ -96,8 +103,19 @@ function main()
 	var testFuncs;
 
 	testFuncs = [
+	    /* Initial phases locate addresses of interest in the core file. */
 	    findTestObjectAddr,
-	    findArrayAddrs
+	    findArrayAddrs,
+
+	    /* Next, we have special-case tests. */
+	    testNullAddr.bind(null, '::jsarray'),
+	    testNullAddr.bind(null, '::jsarray -i'),
+	    testNullAddr.bind(null, '::walk jselement'),
+	    testBadAddr.bind(null, '::jsarray'),
+	    testBadAddr.bind(null, '::jsarray -i'),
+	    testBadAddr.bind(null, '::walk jselement')
+
+	    /* The remaining test cases are generated below. */
 	];
 
 	/*
@@ -144,6 +162,11 @@ function main()
 	}
 	delete (arr[3]);
 
+	/*
+	 * Now, try an array that's a slice of a much larger one.
+	 */
+	testObject['array_sliced'] = testObject['array_1023'].slice(700, 703);
+
 	testCasesAdHoc.forEach(function (testcase) {
 		testFuncs.push(testArrayAdHoc.bind(null, {
 		    'testCase': testcase,
@@ -158,6 +181,19 @@ function main()
 		    'flavor': 'jselement'
 		}));
 	});
+
+	/*
+	 * Finally, create an array with which we can test the output of
+	 * "::jsarray -i".  It's much easier to do this with integer values,
+	 * which we can validate without piping the result to "::jsprint".  The
+	 * output comparison relies on the stable representation of small
+	 * integers, but it's a reasonable tradeoff here.
+	 */
+	testFuncs.push(testJsprintIndexes.bind(null, 'array_0', []));
+
+	testObject['array_integers'] = [ 1, 2, 3, 5, 7, 11, 13 ];
+	testFuncs.push(testJsprintIndexes.bind(null, 'array_integers',
+	    [ '2', '4', '6', 'a', 'e', '16', '1a' ]));
 
 	testFuncs.push(function (mdb, callback) {
 		mdb.checkMdbLeaks(callback);
@@ -273,6 +309,47 @@ function findArrayAddrs(mdb, callback) {
 
 		callback();
 	});
+}
+
+/*
+ * Test the expected behavior of using "0" as the target address of the
+ * specified command.
+ */
+function testNullAddr(cmd, mdb, callback)
+{
+	var cmdstr;
+
+	cmdstr = util.format('0%s\n', cmd);
+	mdb.runCmd(cmdstr, function (output) {
+		/*
+		 * TODO we should really validate the stderr, but it will
+		 * suffice for now to ensure that mdb_v8 didn't crash.
+		 */
+		assert.equal(output, '');
+		callback();
+	});
+}
+
+/*
+ * Test the expected behavior of using a non-array pointer as the target address
+ * of the specified command.  We use the address of "testObject", which we know
+ * to be an object and not an array.
+ */
+function testBadAddr(cmd, mdb, callback)
+{
+	var cmdstr;
+
+	assert.equal(typeof (testObjectAddr), 'string');
+	cmdstr = util.format('%s%s\n', testObjectAddr, cmd);
+	mdb.runCmd(cmdstr, function (output) {
+		/*
+		 * TODO we should really validate the stderr, but it will
+		 * suffice for now to ensure that mdb_v8 didn't crash.
+		 */
+		assert.equal(output, '');
+		callback();
+	});
+
 }
 
 /*
@@ -467,6 +544,25 @@ function testArrayAdHoc(args, mdb, callback)
 
 	mdb.runCmd(cmdstr, function (output) {
 		assert.equal(output, expectedOutput);
+		callback();
+	});
+}
+
+/*
+ * Tests the output of "::jsprint -i" on the given named array in "testObject".
+ */
+function testJsprintIndexes(arrayname, elements, mdb, callback)
+{
+	var cmdstr, addr;
+
+	assert.ok(testArrayAddrs.hasOwnProperty(arrayname),
+	    'test case references bogus array: "' + arrayname + '"');
+	addr = testArrayAddrs[arrayname];
+	cmdstr = util.format('%s::jsarray -i\n', addr);
+	mdb.runCmd(cmdstr, function (output) {
+		assert.equal(output, elements.map(function (e, i) {
+			return (util.format('%d %s\n', i, e));
+		}).join(''));
 		callback();
 	});
 }

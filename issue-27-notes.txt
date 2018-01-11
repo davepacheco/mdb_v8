@@ -1,14 +1,9 @@
 Current status:
-- Next, I want to update dcmd_jsarray() to use the walker.  (It can pass through
-  opt_i to its callback.)
-- Add test cases for "::jsarray -i"?
-- Next, add test cases for pointers: 0, testObject to both ::jsarray and ::walk
-  jsarray (to test invalid cases)
 - Add documentation
 - Finish up versioning changes
 
 Final approach:
-- see XXXs
+- see XXXs, "dap"
 - file ticket for updating the rest of the test suite
 - rerun test suite on all Node versions, both 32-bit and 64-bit
 - update changelog and version file
