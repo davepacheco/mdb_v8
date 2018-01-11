@@ -187,13 +187,16 @@ function main()
 	 * "::jsarray -i".  It's much easier to do this with integer values,
 	 * which we can validate without piping the result to "::jsprint".  The
 	 * output comparison relies on the stable representation of small
-	 * integers, but it's a reasonable tradeoff here.
+	 * integers, which differs between 32-bit and 64-bit, but it's a
+	 * reasonable tradeoff here.
 	 */
 	testFuncs.push(testJsprintIndexes.bind(null, 'array_0', []));
 
 	testObject['array_integers'] = [ 1, 2, 3, 5, 7, 11, 13 ];
 	testFuncs.push(testJsprintIndexes.bind(null, 'array_integers',
-	    [ '2', '4', '6', 'a', 'e', '16', '1a' ]));
+	    process.arch == 'ia32' ?  [ '2', '4', '6', 'a', 'e', '16', '1a' ] :
+		[ '100000000', '200000000', '300000000', '500000000',
+		'700000000', 'b00000000', 'd00000000' ]));
 
 	testFuncs.push(function (mdb, callback) {
 		mdb.checkMdbLeaks(callback);
