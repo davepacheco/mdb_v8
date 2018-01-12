@@ -2744,7 +2744,8 @@ jsobj_properties(uintptr_t addr,
 	 * of instance descriptors.
 	 */
 	for (ii = 0; ii < rndescs; ii++) {
-		intptr_t keyidx, validx, detidx, baseidx, propaddr, propidx;
+		intptr_t keyidx, validx, detidx, baseidx, propaddr;
+		intptr_t propidx, proparrayidx = -1;
 		char buf[1024];
 		intptr_t val;
 		size_t len = sizeof (buf);
@@ -2783,8 +2784,9 @@ jsobj_properties(uintptr_t addr,
 		 * (notably: transitions) that we don't care about (and these
 		 * are not errors).
 		 */
-		if (!V8_DESC_ISFIELD(content[detidx]))
+		if (!V8_DESC_ISFIELD(content[detidx])) {
 			continue;
+		}
 
 		if (keyidx >= ndescs) {
 			propinfo |= JPI_SKIPPED;
@@ -2840,6 +2842,14 @@ jsobj_properties(uintptr_t addr,
 				/* The property is stored inside the object. */
 				propaddr = addr + V8_OFF_HEAP(
 				    size - (ninprops - propidx) * ps);
+			} else {
+				/*
+				 * The property is stored in the "properties"
+				 * array.  This will be handled below.  The
+				 * index needs to be offset by the number of
+				 * in-object properties.
+				 */
+				proparrayidx = propidx - ninprops;
 			}
 		} else {
 			/*
@@ -2870,6 +2880,8 @@ jsobj_properties(uintptr_t addr,
 				 */
 				propaddr = addr +
 				    V8_OFF_HEAP(size + propidx * ps);
+			} else {
+				proparrayidx = propidx;
 			}
 		}
 
@@ -2887,9 +2899,9 @@ jsobj_properties(uintptr_t addr,
 			}
 
 			propinfo |= JPI_INOBJECT;
-		} else if (propidx >= 0 && propidx < nprops) {
+		} else if (proparrayidx >= 0 && proparrayidx < nprops) {
 			/* Valid "properties" array property found. */
-			ptr = props[propidx];
+			ptr = props[proparrayidx];
 			propinfo |= JPI_PROPS;
 		} else {
 			/*
