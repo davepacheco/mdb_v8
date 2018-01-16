@@ -47,7 +47,7 @@ var bindObject = {
 };
 
 doStuff('hello world');
-process.stdout.write(util.format(bindObject).length > 0 ? '' : 'unused');
+common.gcAvoid();
 
 /*
  * Now we're going to fork ourselves to gcore
@@ -150,6 +150,8 @@ processors = [
 
     function gotClosurePointer(chunk) {
 	closure = chunk.trim();
+	assert.ok(closure.length > 0,
+	    'did not find expected closure "myClosure"');
 	doCmd(util.format('%s::jsclosure\n', closure));
     },
 
