@@ -367,8 +367,8 @@ function standaloneTest(funcs, callback)
  * few options.  We can modify the test to avoid GC altogether, but the more the
  * tests differ from what normal JavaScript programs do, the less they're
  * testing the right behavior.
- * TODO another option might be that instead of using gcore, we run a DTrace
- * script that fires on a well-known probe and saves a core file.
+ *
+ * See mdb_v8#104 for a better approach.
  */
 var gcAvoidRefs;
 function gcAvoid()
