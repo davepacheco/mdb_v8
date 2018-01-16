@@ -32,7 +32,7 @@ function myTestFunction()
 	return (new Buffer(bufstr));
 }
 
-var bufstr, mybuffer, slicedBuffer, slicedBufferLength;
+var bufstr, mybuffer, slicedBuffer, slicedBufferLength, consname;
 
 /*
  * Run myTestFunction() three times to create multiple instances of
@@ -47,6 +47,12 @@ mybuffer.my_buffer = true;
 slicedBufferLength = 5;
 slicedBuffer = mybuffer.slice(0, slicedBufferLength);
 slicedBuffer.is_sliced_buffer = true;
+
+/*
+ * The following access of the constructor's name attempts to work around
+ * mdb_v8#103.
+ */
+consname = slicedBuffer.constructor.name;
 
 var OBJECT_KINDS = ['dict', 'inobject', 'numeric', 'props'];
 
