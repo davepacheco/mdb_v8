@@ -1,12 +1,8 @@
-Current status:
-- Add documentation
-- Finish up versioning changes
+As of commit b4303a4ea2842edc420cc4ea8e9924d90349fa50
+- no unexpected instances of XXX, "dap", TODO, FIXME, or console
 
 Final approach:
-- see XXXs, "dap"
-- file ticket for updating the rest of the test suite
 - rerun test suite on all Node versions, both 32-bit and 64-bit
-- update changelog and version file
 - rerun / document the manual testing I did:
   - see below
   - core files kept around when they should be, not when they're not
@@ -19,14 +15,7 @@ Final approach:
     - stderr before load completes
     - broken jsarray output
     - broken jsprint output
-- file tickets for (or document in other tickets) the changes here:
-  - changed internal representation of arrays to better support large arrays
-  - update jsprint to use this (still sucks because of the way jsprint works)
-  - update v8array to use this (not much difference?)
-  - **no longer print lots of "hole" values on the end of long arrays**
-  - add "::jsarray" command
-  - generalize test suite common code for use in more places
-  - test suite can now use packages (but must be careful -- probably no binaries)
+- file ticket for updating the rest of the test suite
 
 Tests (as of commit 1691d5992833b37b83bd88d2a5b04b99d4e1867c):
 - `make prepush` from clean workspace
@@ -52,3 +41,10 @@ Tests (as of commit 1691d5992833b37b83bd88d2a5b04b99d4e1867c):
 CHANGES:
 
 #27 want streaming way to iterate array elements
+#100 jsprint shows more "hole" values than it should
+#101 test suite could use common mechanism for standalone tests
+
+???:
+- file ticket on 64-bit node 0.12.17 core file (/var/tmp/node.65359, where
+  pointer to function on the stack can't be processed with ::jsfunction, and
+  probably is one of the ones we expect in ::jsfunctions -n myClosure).
