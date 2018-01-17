@@ -36,7 +36,8 @@ var DSCRIPT_SUFFIX = [
     '    printf("%s\\n", ' + JSON.stringify(DSCRIPT_SENTINEL_BEGIN) + ');',
     '}',
     '',
-    'syscall::stat:entry',
+    'syscall::stat:entry,',
+    'syscall::stat64:entry',
     '/pid == TARGET_PID && copyinstr(arg0) == ' +
 	JSON.stringify(DSCRIPT_FILE_SENTINEL) + '/',
     '{',
@@ -90,17 +91,18 @@ function gcoreSelf(callback)
 	dtrace = childprocess.spawn(dtrace_args.program, dtrace_args.argv);
 	dtrace.stdin.end(dtrace_args.script);
 	dtrace.stderr.on('data', function (data) {
-		process.stderr.write('dtrace stderr: ' + data);
+		process.stderr.write('gcoreSelf: dtrace stderr: ' + data);
 	});
 
 	buffered = '';
 	dtrace.stdout.on('data', function (data) {
-		process.stderr.write('dtrace stdout: ' + data);
+		process.stderr.write('gcoreSelf: dtrace stdout: ' + data);
 		buffered += data;
 
 		if (state == 'wait_for_trace') {
 			if (buffered.indexOf(DSCRIPT_SENTINEL_BEGIN) == -1) {
 				/* Wait for the sentinel. */
+				console.error('gcoreSelf: waiting extra');
 				return;
 			}
 
@@ -110,6 +112,7 @@ function gcoreSelf(callback)
 			 * GC.  We don't really care about the result, but we
 			 * check to be sure things haven't flown off the rails.
 			 */
+			console.error('gcoreSelf: dtrace is tracing');
 			state = 'wait_for_result';
 			try {
 				fs.statSync(DSCRIPT_FILE_SENTINEL);
@@ -133,11 +136,13 @@ function gcoreSelf(callback)
 		if (state == 'wait_for_result') {
 			if (buffered.indexOf(DSCRIPT_SENTINEL_DONE) == -1) {
 				/* Wait for the second sentinel. */
+				console.error('gcoreSelf: waiting extra');
 				return;
 			}
 
 			/* Success! */
 			state = 'succeeded';
+			console.error('gcoreSelf: gcore completed');
 		}
 	});
 
