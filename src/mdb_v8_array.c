@@ -10,7 +10,8 @@
 
 /*
  * mdb_v8_array.c: implementations of functions used for working with
- * JavaScript arrays.
+ * JavaScript arrays.  These are not to be confused with V8's internal
+ * FixedArray (upon which JavaScript arrays are built).
  */
 
 #include <assert.h>

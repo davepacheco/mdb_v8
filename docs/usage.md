@@ -956,7 +956,9 @@ frame, and other native objects for each frame (e.g., JSFunction addresses).
 
     addr::walk jselement
 
-Given a JavaScript array identified by `addr`, enumerates the elements of the array.  This behaves very similarly to `::jsarray`.  See the notes about holes under `::jsarray`.
+Given a JavaScript array identified by `addr`, enumerates the elements of the
+array.  This behaves very similarly to `::jsarray`.  See the notes about holes
+under `::jsarray`.
 
 For example, the array created by this code:
 
