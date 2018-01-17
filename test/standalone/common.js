@@ -21,12 +21,12 @@ var util = require('util');
 var vasync = require('vasync');
 var VError = require('verror');
 
+var gcoreSelf = require('./gcore_self');
+
 /* Public interface */
 exports.dmodpath = dmodpath;
-exports.gcoreSelf = gcoreSelf;
 exports.createMdbSession = createMdbSession;
 exports.standaloneTest = standaloneTest;
-exports.gcAvoid = gcAvoid;
 
 var MDB_SENTINEL = 'MDB_SENTINEL\n';
 
@@ -38,40 +38,6 @@ function dmodpath()
 	var arch = process.arch == 'x64' ? 'amd64' : 'ia32';
 	return (path.join(
 	    __dirname, '..', '..', 'build', arch, 'mdb_v8.so'));
-}
-
-/*
- * Utility function for saving a core file of the current process using
- * gcore(1M).  This is used in a number of tests as the basis for exercising
- * mdb_v8.
- *
- * This function invokes "callback" upon completion with arguments:
- *
- * - err, if there was any error
- * - filename, with the path to the specified file
- */
-function gcoreSelf(callback)
-{
-	var prefix, corefile, gcore;
-
-	prefix = '/var/tmp/node';
-	corefile = prefix + '.' + process.pid;
-	gcore = childprocess.spawn('gcore',
-	    [ '-o', prefix, process.pid + '' ]);
-
-	gcore.stderr.on('data', function (data) {
-		console.log('gcore: stderr: ' + data);
-	});
-
-	gcore.on('exit', function (code) {
-		if (code !== 0) {
-			callback(new Error('gcore exited with code ' + code));
-			return;
-		}
-
-		console.log('gcore created %s', corefile);
-		callback(null, corefile);
-	});
 }
 
 function MdbSession()
@@ -347,43 +313,4 @@ function standaloneTest(funcs, callback)
 
 		callback(err);
 	});
-}
-
-/*
- * This awful function exists to attempt to stave off garbage collection for a
- * modest number of future allocations.  It works by allocating a bunch of
- * objects until the JavaScript heap expands.  Once the heap expands, we remove
- * these references and return.  The hope is that we've expanded the heap enough
- * that another GC won't be necessary for a little while.
- *
- * This is obviously a really cheesy approach.  The problem is that at present,
- * mdb_v8 cannot deal well with core files created in the middle of a GC.
- * (That's in turn because V8 borrows bits in pointer addresses to store GC
- * state, and that means we can't generally tell from an address whether it's an
- * integer or a pointer that's had its low bit cleared for temporary GC
- * purposes.  That makes it really hard to process most data structures.)
- *
- * Given this limitation, and the desire to have reliable tests, we're left with
- * few options.  We can modify the test to avoid GC altogether, but the more the
- * tests differ from what normal JavaScript programs do, the less they're
- * testing the right behavior.
- *
- * See mdb_v8#104 for a better approach.
- */
-var gcAvoidRefs;
-function gcAvoid()
-{
-	var nrefs, nrefsmax, heaptotal;
-
-	heaptotal = process.memoryUsage().heapTotal;
-	nrefs = 0;
-	nrefsmax = 100000;
-	gcAvoidRefs = [];
-	while (nrefs < nrefsmax &&
-	    process.memoryUsage().heapTotal == heaptotal) {
-		gcAvoidRefs.push({ 'ref': nrefs++ });
-	}
-
-	assert.notEqual(nrefs, nrefsmax);
-	gcAvoidRefs = undefined;
 }
