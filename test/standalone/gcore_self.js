@@ -96,6 +96,8 @@ function gcoreSelf(callback)
 
 	buffered = '';
 	dtrace.stdout.on('data', function (data) {
+		var sentinelExists;
+
 		process.stderr.write('gcoreSelf: dtrace stdout: ' + data);
 		buffered += data;
 
@@ -116,12 +118,13 @@ function gcoreSelf(callback)
 			state = 'wait_for_result';
 			try {
 				fs.statSync(DSCRIPT_FILE_SENTINEL);
+				sentinelExists = true;
 			} catch (err) {
-				assert.ok(err,
-				    'unexpectedly succeeded in stat\'ing ' +
-				    'sentinel file ' + DSCRIPT_FILE_SENTINEL);
 				assert.strictEqual(err.code, 'ENOENT');
+				sentinelExists = false;
 			}
+			assert.ok(sentinelExists === false,
+			    'statSync of sentinel unexpectedly succeeded!');
 
 			/*
 			 * It shouldn't be possible to see both the initial

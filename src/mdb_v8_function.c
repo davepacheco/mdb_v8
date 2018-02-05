@@ -482,6 +482,7 @@ v8funcinfo_definition_location(v8funcinfo_t *fip, mdbv8_strbuf_t *strb,
 
 	data = v8fixedarray_as_array(arrayp, memflags);
 	if (data == NULL) {
+		v8fixedarray_free(arrayp);
 		return (-1);
 	}
 

@@ -10,8 +10,9 @@
 
 /*
  * tst.arrays.js: This test case generates a number of arrays of various sizes,
- * finds them with "findjsobjects", then prints them out with both "jsprint" and
- * "jsarray".  Then it does the same with some specially-crafted arrays.
+ * finds them with "findjsobjects", then prints them out with "jsprint",
+ * "jsarray", and "walk jsarray".  Then it does the same with some
+ * specially-crafted arrays.
  *
  * Like most of the standalone tests, this test works by creating a bunch of
  * structures in memory, using gcore(1M) to save a core file of the current

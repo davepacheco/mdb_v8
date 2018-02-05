@@ -121,9 +121,7 @@ MdbSession.prototype.finish = function (error)
 	}
 
 	if (error) {
-		this.mdb_error = new VError(error,
-		    'error running test');
-		this.emit('error', this.mdb_error);
+		this.mdb_error = new VError(error, 'error running test');
 		return;
 	}
 
@@ -307,6 +305,7 @@ function standaloneTest(funcs, callback)
 			err = new VError(err,
 			    'test failed (keeping core file %s)',
 			    mdb.mdb_target_name);
+			mdb.finish(err);
 		} else {
 			err = new VError(err, 'test failed');
 		}

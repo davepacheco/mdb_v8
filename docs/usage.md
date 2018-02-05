@@ -621,9 +621,10 @@ See also: `jsfunction`
 
     addr::jsarray [-i]
 
-Given an address `addr` of a JavaScript array, print the contents of the array.
-Each element of the array is printed on its own line.  With no options, the
-result can be piped to `::jsprint` to print each element.
+Given an address `addr` of an instance of the JavaScript "Array" class, print
+the contents of the array.  Each element of the array is printed on its own
+line.  With no options, the result can be piped to `::jsprint` to print each
+element.
 
 For example, take this snippet:
 

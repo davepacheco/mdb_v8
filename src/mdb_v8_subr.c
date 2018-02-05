@@ -120,9 +120,12 @@ v8fixedarray_iter_elements(v8fixedarray_t *arrayp,
 
 /*
  * Return a native array representing the contents of the FixedArray "arrayp".
- * NOTE: If possible, use v8fixedarray_iter_elements() instead, as that uses a
- * constant amount of memory and makes it possible to work on much larger
- * arrays.
+ * NOTE: If possible, v8fixedarray_iter_elements() should be used instead of
+ * this function.  That function requires only a constant amount of memory
+ * regardless of the array size.  That can be a major performance improvement
+ * when available memory is limited, and it makes it possible to work with
+ * arbitrarily large arrays for which we can't necessarily allocate such a large
+ * block.
  *
  * The length of the returned array is given by v8fixedarray_length().  The
  * caller must free this with "maybefree" using the same "memflags".
