@@ -6087,6 +6087,7 @@ typedef struct {
 	unsigned short	jsfr_curdepth;
 	unsigned short	jsfr_maxdepth;
 	boolean_t	jsfr_verbose;
+	boolean_t	jsfr_debug;
 } jsfindrefs_t;
 
 static int jsfindrefs(jsfindrefs_t *);
@@ -6110,10 +6111,12 @@ dcmd_jsfindrefs(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 	jsfr.jsfr_maxdepth = 5;
 	jsfr.jsfr_maxoffset = 4096;
 	jsfr.jsfr_verbose = B_FALSE;
+	jsfr.jsfr_debug = B_FALSE;
 
 	if (mdb_getopts(argc, argv,
 	    'v', MDB_OPT_SETBITS, B_TRUE, &jsfr.jsfr_verbose,
-	    'd', MDB_OPT_UINTPTR, &maxdepth, NULL) != argc) {
+	    'd', MDB_OPT_SETBITS, B_TRUE, &jsfr.jsfr_debug,
+	    'l', MDB_OPT_UINTPTR, &maxdepth, NULL) != argc) {
 		return (DCMD_USAGE);
 	}
 
@@ -6134,15 +6137,16 @@ jsfindrefs_reference(uintptr_t refaddr, void *arg)
 	v8whatis_t whatis;
 	v8whatis_error_t err;
 	boolean_t verbose = jsfr->jsfr_verbose;
+	boolean_t debug = jsfr->jsfr_debug;
 
-	if (jsfr->jsfr_verbose) {
-		mdb_printf("jsfindrefs: depth %d: %p: found reference at %p: ",
+	if (debug) {
+		mdb_printf("depth %d: %p: found reference at %p: ",
 		    jsfr->jsfr_curdepth, jsfr->jsfr_addr, refaddr);
 	}
 
 	err = v8whatis(refaddr, jsfr->jsfr_maxoffset, &whatis);
 	if (err == V8W_ERR_NOTFOUND) {
-		if (verbose) {
+		if (debug) {
 			mdb_printf("no heap object found within %d bytes\n",
 			    jsfr->jsfr_maxoffset);
 		}
@@ -6151,7 +6155,7 @@ jsfindrefs_reference(uintptr_t refaddr, void *arg)
 	}
 
 	if (err == V8W_ERR_DOESNTCONTAIN) {
-		if (verbose) {
+		if (debug) {
 			mdb_printf("does not appear to be contained in a "
 			    "heap object\n");
 		}
@@ -6160,7 +6164,7 @@ jsfindrefs_reference(uintptr_t refaddr, void *arg)
 	}
 
 	if (err != V8W_OK) {
-		if (verbose) {
+		if (debug) {
 			mdb_printf("unknown error\n");
 		}
 
@@ -6176,12 +6180,15 @@ jsfindrefs_reference(uintptr_t refaddr, void *arg)
 	    whatis.v8w_basetype == V8_TYPE_JSDATE ||
 	    whatis.v8w_basetype == V8_TYPE_JSREGEXP ||
 	    whatis.v8w_basetype == V8_TYPE_JSTYPEDARRAY ||
-	    whatis.v8w_basetype == V8_TYPE_JSBOUNDFUNCTION) {
+	    whatis.v8w_basetype == V8_TYPE_JSBOUNDFUNCTION ||
+	    (V8_TYPE_STRING(whatis.v8w_basetype) &&
+	    (V8_STRREP_CONS(whatis.v8w_basetype) ||
+	    V8_STRREP_SLICED(whatis.v8w_basetype)))) {
 		/*
 		 * Success!  We've found a real JavaScript value.
 		 */
-		if (verbose) {
-			mdb_printf("\n%p (type: %s)\n", whatis.v8w_baseaddr,
+		if (debug || verbose) {
+			mdb_printf("%p (type: %s)\n", whatis.v8w_baseaddr,
 			    enum_lookup_str(v8_types, whatis.v8w_basetype,
 			    "(unknown)"));
 		} else {
@@ -6200,8 +6207,8 @@ jsfindrefs_reference(uintptr_t refaddr, void *arg)
 		 */
 		jsfindrefs_t subjsfr;
 
-		if (verbose) {
-			mdb_printf("\n");
+		if (debug) {
+			mdb_printf("internal V8 intermediate object\n");
 		}
 
 		if (jsfr->jsfr_curdepth == jsfr->jsfr_maxdepth - 1) {
@@ -6231,7 +6238,7 @@ jsfindrefs_reference(uintptr_t refaddr, void *arg)
 	 * are, so we don't know whether this makes any sense.  For now,
 	 * we just stop the search.
 	 */
-	if (verbose) {
+	if (debug) {
 		mdb_printf("giving up search at instance of %s\n",
 		    enum_lookup_str(v8_types, whatis.v8w_basetype,
 		    "(unknown)"));
@@ -6991,7 +6998,7 @@ dcmd_v8whatis(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 		return (DCMD_OK);
 	}
 
-	mdb_printf("%p (found Map at %p (%p-0x%x) for type %s)",
+	mdb_printf("%p (found Map at %p (%p-0x%x) for type %s)\n",
 	    whatis.v8w_baseaddr, whatis.v8w_baseaddr, whatis.v8w_origaddr,
 	    whatis.v8w_origaddr - whatis.v8w_baseaddr,
 	    enum_lookup_str(v8_types, whatis.v8w_basetype, "(unknown)"));
