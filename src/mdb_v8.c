@@ -6082,17 +6082,20 @@ dcmd_jsconstructor(uintptr_t addr, uint_t flags, int argc,
 
 typedef struct {
 	uintptr_t	jsfr_addr;
+	uintptr_t	jsfr_origaddr;
+	size_t		jsfr_maxoffset;
 	unsigned short	jsfr_curdepth;
 	unsigned short	jsfr_maxdepth;
 	boolean_t	jsfr_verbose;
 } jsfindrefs_t;
 
+static int jsfindrefs(jsfindrefs_t *);
 static int jsfindrefs_reference(uintptr_t, void *);
 
 static int
 dcmd_jsfindrefs(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 {
-	jsfindrefs_t jsfindrefs;
+	jsfindrefs_t jsfr;
 	uintptr_t maxdepth;
 	int err;
 
@@ -6101,27 +6104,139 @@ dcmd_jsfindrefs(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 		return (DCMD_USAGE);
 	}
 
-	jsfindrefs.jsfr_addr = addr;
-	jsfindrefs.jsfr_curdepth = 0;
-	jsfindrefs.jsfr_maxdepth = 5;
+	jsfr.jsfr_addr = addr;
+	jsfr.jsfr_origaddr = addr;
+	jsfr.jsfr_curdepth = 0;
+	jsfr.jsfr_maxdepth = 5;
+	jsfr.jsfr_maxoffset = 4096;
+	jsfr.jsfr_verbose = B_FALSE;
 
 	if (mdb_getopts(argc, argv,
-	    'v', MDB_OPT_SETBITS, B_TRUE, &jsfindrefs.jsfr_verbose,
+	    'v', MDB_OPT_SETBITS, B_TRUE, &jsfr.jsfr_verbose,
 	    'd', MDB_OPT_UINTPTR, &maxdepth, NULL) != argc) {
 		return (DCMD_USAGE);
 	}
 
-	err = dbi_ugrep(addr, jsfindrefs_reference, &jsfindrefs);
+	err = jsfindrefs(&jsfr);
 	return (err == 0 ? DCMD_OK : DCMD_ERR);
 }
 
-/* ARGSUSED */ // XXX remove
+static int
+jsfindrefs(jsfindrefs_t *jsfr)
+{
+	return (dbi_ugrep(jsfr->jsfr_addr, jsfindrefs_reference, jsfr));
+}
+
 static int
 jsfindrefs_reference(uintptr_t refaddr, void *arg)
 {
-	// jsfindrefs_t *jsfindrefs = arg;
+	jsfindrefs_t *jsfr = arg;
+	v8whatis_t whatis;
+	v8whatis_error_t err;
+	boolean_t verbose = jsfr->jsfr_verbose;
 
-	/* XXX working here -- need to write v8whatis() function first. */
+	if (jsfr->jsfr_verbose) {
+		mdb_printf("jsfindrefs: depth %d: %p: found reference at %p: ",
+		    jsfr->jsfr_curdepth, jsfr->jsfr_addr, refaddr);
+	}
+
+	err = v8whatis(refaddr, jsfr->jsfr_maxoffset, &whatis);
+	if (err == V8W_ERR_NOTFOUND) {
+		if (verbose) {
+			mdb_printf("no heap object found within %d bytes\n",
+			    jsfr->jsfr_maxoffset);
+		}
+
+		return (0);
+	}
+
+	if (err == V8W_ERR_DOESNTCONTAIN) {
+		if (verbose) {
+			mdb_printf("does not appear to be contained in a "
+			    "heap object\n");
+		}
+
+		return (0);
+	}
+
+	if (err != V8W_OK) {
+		if (verbose) {
+			mdb_printf("unknown error\n");
+		}
+
+		return (-1);
+	}
+
+	if (whatis.v8w_basetype == V8_TYPE_HEAPNUMBER ||
+	    whatis.v8w_basetype == V8_TYPE_MUTABLEHEAPNUMBER ||
+	    whatis.v8w_basetype == V8_TYPE_ODDBALL ||
+	    whatis.v8w_basetype == V8_TYPE_JSOBJECT ||
+	    whatis.v8w_basetype == V8_TYPE_JSARRAY ||
+	    whatis.v8w_basetype == V8_TYPE_JSFUNCTION ||
+	    whatis.v8w_basetype == V8_TYPE_JSDATE ||
+	    whatis.v8w_basetype == V8_TYPE_JSREGEXP ||
+	    whatis.v8w_basetype == V8_TYPE_JSTYPEDARRAY ||
+	    whatis.v8w_basetype == V8_TYPE_JSBOUNDFUNCTION) {
+		/*
+		 * Success!  We've found a real JavaScript value.
+		 */
+		if (verbose) {
+			mdb_printf("\n%p (type: %s)\n", whatis.v8w_baseaddr,
+			    enum_lookup_str(v8_types, whatis.v8w_basetype,
+			    "(unknown)"));
+		} else {
+			mdb_printf("%p\n", whatis.v8w_baseaddr);
+		}
+
+		return (0);
+	}
+
+	if (whatis.v8w_basetype == V8_TYPE_FIXEDARRAY) {
+		/*
+		 * FixedArrays can be legitimate intermediate values for
+		 * array element references, closure references, and some
+		 * property references.  In this case, we'll take another lap,
+		 * assuming we haven't hit our depth limit.
+		 */
+		jsfindrefs_t subjsfr;
+
+		if (verbose) {
+			mdb_printf("\n");
+		}
+
+		if (jsfr->jsfr_curdepth == jsfr->jsfr_maxdepth - 1) {
+			/*
+			 * We don't expect this to happen in practice very
+			 * often, since most JS values should be referenced by
+			 * some other JS value within less than 5 hops through
+			 * V8 values.  So it's worth letting the user know when
+			 * this happens.  If this becomes noisy, we could hide
+			 * this under v8_warn() or else figure out if we should
+			 * handle the noisy cases better.
+			 */
+			mdb_warn("%p: gave up after following %d references\n",
+			    jsfr->jsfr_origaddr, jsfr->jsfr_curdepth);
+			return (0);
+		} else {
+			subjsfr = *jsfr;
+			subjsfr.jsfr_addr = whatis.v8w_baseaddr;
+			subjsfr.jsfr_curdepth++;
+			return (jsfindrefs(&subjsfr));
+		}
+	}
+
+	/*
+	 * We could treat this the same as we do for FixedArrays, but at
+	 * this time, we don't know what other intermediate types there
+	 * are, so we don't know whether this makes any sense.  For now,
+	 * we just stop the search.
+	 */
+	if (verbose) {
+		mdb_printf("giving up search at instance of %s\n",
+		    enum_lookup_str(v8_types, whatis.v8w_basetype,
+		    "(unknown)"));
+	}
+
 	return (0);
 }
 

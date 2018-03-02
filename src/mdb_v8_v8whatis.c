@@ -18,6 +18,17 @@
 #include "mdb_v8_dbg.h"
 #include "mdb_v8_impl.h"
 
+/*
+ * v8whatis() attempts to find the V8 heap object that contains "addr" by
+ * looking at up to "maxoffset" bytes leading up to "addr" for the specific
+ * signature that indicates a V8 heap object, and then interpreting any possible
+ * heap object to see if the target address is indeed contained within it.
+ * Results are stored into "whatisp", and any errors are returned as a
+ * "v8whatis_error_t".  Note that as many fields of "whatisp" are populated as
+ * possible, so even if you get V8W_ERR_DOESNTCONTAIN (which indicates that we
+ * found an object, but it doesn't seem to contain the target), then
+ * v8w_baseaddr and v8w_basetype are still valid.
+ */
 v8whatis_error_t
 v8whatis(uintptr_t addr, size_t maxoffset, v8whatis_t *whatisp)
 {
