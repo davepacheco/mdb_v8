@@ -87,8 +87,11 @@ ugrep_mapping(ugrep_op_t *ugrep, const prmap_t *pmp, const char *name)
 		    pmp->pr_size - (chunkbase - pmp->pr_vaddr));
 
 		if (mdb_vread(buf, ntoread, chunkbase) == -1) {
-			ugrep->ug_result = -1;
-			return (-1);
+			/*
+			 * Some mappings are not present in core files.  This
+			 * does not represent an error case here.
+			 */
+			continue;
 		}
 
 		nptrs = ntoread / sizeof (uintptr_t);
