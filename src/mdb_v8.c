@@ -7257,7 +7257,7 @@ static const mdb_dcmd_t v8_mdb_dcmds[] = {
 	{ "jsconstructor", ":[-v]",
 		"print the constructor for a JavaScript object",
 		dcmd_jsconstructor },
-	{ "jsfindrefs", ":[-v] [-d maxdepth]",
+	{ "jsfindrefs", ":[-dv] [-l maxdepth]",
 		"attempt to find JavaScript objects referencing an object",
 		dcmd_jsfindrefs },
 	{ "jsframe", ":[-aiv] [-f function] [-p property] [-n numlines]",

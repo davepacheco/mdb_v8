@@ -5,6 +5,7 @@
 	"private": true,
 	"devDependencies": {
 		"jsprim": "^2.0.0",
+		"strsplit": "^1.0.0",
 		"vasync": "^2.2.0",
 		"verror": "^1.10.0"
 	}

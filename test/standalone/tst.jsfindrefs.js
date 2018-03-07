@@ -15,7 +15,9 @@
 
 var assert = require('assert');
 var jsprim = require('jsprim');
+var strsplit = require('strsplit');
 var util = require('util');
+var vasync = require('vasync');
 var VError = require('verror');
 
 var common = require('./common');
@@ -46,14 +48,16 @@ var common = require('./common');
  *   - something where we find references to non-FixedArrays
  */
 var aString = '^regular expression!$';
+var aLongerString = '0123456789012345678901234567890123456789';
 var testObject = {
     'aDateWithHeapNumber': new Date(0),
     'aString': aString,
+    'aLongerString': aLongerString,
     'aRegExp': new RegExp(aString),
     'aBigObject': {},
     'aSubObject': {},
     'anArray': [ 16, 32, 64, 96, aString ],
-    'aSlicedString': '0123456789012345678901234567890123456789'.slice(1, 37),
+    'aSlicedString': aLongerString.slice(1, 37),
     'aConsString': aString.concat('boom'),
     'aClosure': function leakClosureVariables() {
 	/* This closure should have a reference to aString. */
@@ -64,6 +68,19 @@ var testObject = {
     'aTrue': true,
     'aFalse': false
 };
+var testObjectAddr;
+var testAddrs = {};
+var simpleProps = [
+    'aDateWithHeapNumber',
+    'aRegExp',
+    'aBigObject',
+    'aSubObject',
+    'anArray',
+    'aSlicedString',
+    'aConsString',
+    'aClosure'
+];
+
 
 function main()
 {
@@ -84,7 +101,16 @@ function main()
 	}
 
 	testFuncs = [];
-
+	testFuncs.push(function findTestObject(mdb, callback) {
+		common.findTestObject(mdb, function gotTestObject(err, addr) {
+			testObjectAddr = addr;
+			callback(err);
+		});
+	});
+	testFuncs.push(findTopLevelObjects);
+	testFuncs.push(testPropsSimple);
+	testFuncs.push(testPropsSimpleVerbose);
+	testFuncs.push(testPropViaSlicedString);
 	testFuncs.push(function (mdb, callback) {
 		mdb.checkMdbLeaks(callback);
 	});
@@ -96,6 +122,147 @@ function main()
 		}
 
 		console.log('%s passed', process.argv[1]);
+	});
+}
+
+/*
+ * Locates the test addresses for each of the properties of "testObject".
+ */
+function findTopLevelObjects(mdb, callback)
+{
+	assert.equal('string', typeof (testObjectAddr));
+	mdb.runCmd(testObjectAddr + '::jsprint -ad1\n', function (output) {
+		var lines, count;
+		var i, parts, propname, propaddr;
+
+		count = 0;
+		jsprim.forEachKey(testObject, function () { count++; });
+
+		/*
+		 * XXX The ::jsprint output, at least for 32-bit Node 0.10.48,
+		 * appears not to contain the "aClosure2" property.  This needs
+		 * to be debugged.  It would help to have a dcmd that prints out
+		 * property descriptors for an object.  We've needed that for
+		 * ages.
+		 */
+		count--;
+		lines = common.splitMdbLines(output, { 'count': count + 2 });
+
+		/*
+		 * There are two extra lines in the output for the header and
+		 * footer of the object.  These are deliberately skipped in this
+		 * loop.
+		 */
+		for (i = 1; i < lines.length - 1; i++) {
+			parts = strsplit.strsplit(lines[i], ':', 3);
+			assert.equal(parts.length, 3);
+			propname = JSON.parse(parts[0].trim());
+			propaddr = parts[1];
+			assert.ok(jsprim.hasKey(testObject, propname));
+			assert.ok(!jsprim.hasKey(testAddrs, propname));
+			testAddrs[propname] = propaddr.trim();
+		}
+
+		console.error(testAddrs);
+		callback();
+	});
+}
+
+/*
+ * For each of the properties of "testObject" that are not referenced anywhere
+ * else, use "::jsfindrefs" to find the one reference.
+ */
+function testPropsSimple(mdb, callback)
+{
+	vasync.forEachPipeline({
+	    'inputs': simpleProps,
+	    'func': function testOneSimpleProperty(propname, subcb) {
+		var propaddr;
+
+		assert.equal('string', typeof (testAddrs[propname]));
+		propaddr = testAddrs[propname];
+		mdb.runCmd(propaddr + '::jsfindrefs\n', function (output) {
+			var lines;
+			lines = common.splitMdbLines(output, { 'count': 1 });
+			assert.equal(lines[0], testObjectAddr);
+			subcb();
+		});
+	    }
+	}, callback);
+}
+
+/*
+ * Similar to "testPropsSimple", but this test exercises the verbose mode of
+ * "::jsfindrefs".
+ */
+function testPropsSimpleVerbose(mdb, callback)
+{
+	vasync.forEachPipeline({
+	    'inputs': simpleProps,
+	    'func': function testOneSimpleProperty(propname, subcb) {
+		var propaddr;
+
+		assert.equal('string', typeof (testAddrs[propname]));
+		propaddr = testAddrs[propname];
+		mdb.runCmd(propaddr + '::jsfindrefs -v\n', function (output) {
+			var lines, expected;
+			lines = common.splitMdbLines(output, { 'count': 1 });
+			expected = testObjectAddr + ' (type: JSObject)';
+			assert.equal(lines[0], expected);
+			subcb();
+		});
+	    }
+	}, callback);
+}
+
+/*
+ * Test that we can find references to objects via a SlicedString.  We use the
+ * "aLongerString" property, which should have two references: one from our
+ * main test object, and one from the "aSlicedString" object.
+ */
+function testPropViaSlicedString(mdb, callback)
+{
+	var addr;
+	assert.equal('string', typeof (testAddrs['aLongerString']));
+	addr = testAddrs['aLongerString'];
+
+	vasync.forEachPipeline({
+	    'inputs': [
+		addr + '::jsfindrefs ! sort\n',
+		addr + '::jsfindrefs -v ! sort\n'
+	    ],
+	    'func': function runCmd(cmd, subcallback) {
+		mdb.runCmd(cmd, function (output) {
+			subcallback(null, output);
+		});
+	    }
+	}, function (err, results) {
+		var lines, expectedAddrs, expectedVerbose;
+
+		if (err) {
+			callback(err);
+			return;
+		}
+
+		expectedAddrs = [
+		    testObjectAddr,
+		    testAddrs['aSlicedString']
+		].sort();
+		lines = common.splitMdbLines(results.operations[0].result,
+		    { 'count': 2 });
+		assert.equal(lines[0], expectedAddrs[0]);
+		assert.equal(lines[1], expectedAddrs[1]);
+
+		expectedVerbose = [
+		    testObjectAddr + ' (type: JSObject)',
+		    testAddrs['aSlicedString'] + ' (type: SlicedString)'
+		].sort();
+		lines = common.splitMdbLines(results.operations[1].result,
+		    { 'count': 2 });
+		assert.equal(lines[0], expectedVerbose[0]);
+		assert.equal(lines[1], expectedVerbose[1]);
+
+		callback();
 	});
 }
 
