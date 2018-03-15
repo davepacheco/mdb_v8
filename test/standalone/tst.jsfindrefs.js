@@ -29,17 +29,8 @@ var common = require('./common');
  *
  * TODO test cases to add:
  * - following an object back through:
- *   - a property reference
- *     - dictionary-based
- *     - in-object-based
- *     - "properties" array based
  *   - a closure reference
- *   - a date reference (e.g., pointing to a heap number)
- *   - an oddball reference (e.g., for the strings "null", "undefined", etc.)
  *   - a bound function reference
- *   - I think the following are not possible: references via:
- *     - heap number, mutable heap number
- * - loops in the graph -- does this matter?
  * - edge cases:
  *   - something where there are no references
  *   - something where we find no references after hitting the max depth
@@ -49,7 +40,6 @@ var aString = '^regular expression!$';
 var aLongerString = '0123456789012345678901234567890123456789';
 var aDummyString = 'dummy';
 var testObject = {
-    'aDateWithHeapNumber': new Date(0),
     'aString': aString,
     'aLongerString': aLongerString,
     'aRegExp': new RegExp(aString),
@@ -69,8 +59,8 @@ var testObject = {
 };
 var testObjectAddr;
 var testAddrs = {};
+var bigObjectAddrs = {};
 var simpleProps = [
-    'aDateWithHeapNumber',
     'aRegExp',
     'aBigObject',
     'aSubObject',
@@ -111,6 +101,9 @@ function main()
 	testFuncs.push(testPropsSimpleVerbose);
 	testFuncs.push(testPropViaSlicedString);
 	testFuncs.push(testPropAString);
+	testFuncs.push(findBigObjectProperties);
+	testFuncs.push(testBigObjectProp);
+
 	testFuncs.push(function (mdb, callback) {
 		mdb.checkMdbLeaks(callback);
 	});
@@ -240,11 +233,7 @@ function testPropViaSlicedString(mdb, callback)
 	}, function (err, results) {
 		var lines, expectedAddrs, expectedVerbose;
 
-		if (err) {
-			callback(err);
-			return;
-		}
-
+		assert.ok(!err);
 		expectedAddrs = [
 		    testObjectAddr,
 		    testAddrs['aSlicedString']
@@ -296,11 +285,7 @@ function testPropAString(mdb, callback)
 	}, function (err, results) {
 		var lines, expectedAddrs, expectedVerbose;
 
-		if (err) {
-			callback(err);
-			return;
-		}
-
+		assert.ok(!err);
 		expectedAddrs = [
 		    testObjectAddr,
 		    testAddrs['aConsString'],
@@ -322,6 +307,82 @@ function testPropAString(mdb, callback)
 		lines = common.splitMdbLines(results.operations[1].result,
 		    { 'count': expectedVerbose.length });
 		assert.deepEqual(lines, expectedVerbose);
+		callback();
+	});
+}
+
+/*
+ * Locates the addresses of the property values inside our big object.
+ */
+function findBigObjectProperties(mdb, callback)
+{
+	assert.equal('string', typeof (testAddrs['aBigObject']));
+	mdb.runCmd(testAddrs['aBigObject'] + '::jsprint -ad1\n',
+	    function (output) {
+		var lines, count;
+		var i, parts, propname, propaddr;
+
+		count = 0;
+		jsprim.forEachKey(testObject['aBigObject'],
+		    function () { count++; });
+		lines = common.splitMdbLines(output, { 'count': count + 2 });
+
+		/*
+		 * There are two extra lines in the output for the header and
+		 * footer of the object.  These are deliberately skipped in this
+		 * loop.
+		 * XXX commonize with above.
+		 */
+		for (i = 1; i < lines.length - 1; i++) {
+			parts = strsplit.strsplit(lines[i], ':', 3);
+			assert.equal(parts.length, 3);
+			propname = JSON.parse(parts[0].trim());
+			propaddr = parts[1];
+			assert.ok(jsprim.hasKey(testObject['aBigObject'],
+			    propname));
+			assert.ok(!jsprim.hasKey(bigObjectAddrs, propname));
+			bigObjectAddrs[propname] = propaddr.trim();
+		}
+
+		console.error(bigObjectAddrs);
+		callback();
+	    });
+}
+
+/*
+ * Tests finding a property value from our big object.  This is intended to
+ * exercise a different case of object layout -- namely, dictionary layout --
+ * than what is likely used for our main test object.
+ */
+function testBigObjectProp(mdb, callback)
+{
+	var addr;
+
+	addr = bigObjectAddrs['prop_25'];
+	assert.equal('string', typeof (addr));
+
+	vasync.forEachPipeline({
+	    'inputs': [
+		addr + '::jsfindrefs\n',
+		addr + '::jsfindrefs -v\n'
+	    ],
+	    'func': function runCmd(cmd, subcallback) {
+		mdb.runCmd(cmd, function (output) {
+			subcallback(null, output);
+		});
+	    }
+	}, function (err, results) {
+		var lines, expectedAddrs, expectedVerbose;
+
+		assert.ok(!err);
+		lines = common.splitMdbLines(results.operations[0].result,
+		    { 'count': 1 });
+		assert.deepEqual(lines, [ testAddrs['aBigObject'] ]);
+
+		lines = common.splitMdbLines(results.operations[1].result,
+		    { 'count': 1 });
+		assert.deepEqual(lines,
+		    [ testAddrs['aBigObject'] + ' (type: JSObject)' ]);
 		callback();
 	});
 }
