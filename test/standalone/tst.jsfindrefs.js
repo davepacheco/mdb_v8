@@ -30,7 +30,6 @@ var common = require('./common');
  * TODO test cases to add:
  * - following an object back through:
  *   - a closure reference
- *   - a bound function reference
  * - edge cases:
  *   - something where there are no references
  *   - something where we find no references after hitting the max depth
@@ -52,6 +51,7 @@ var testObject = {
 	/* This closure should have a reference to aDummyString. */
 	console.log(aDummyString);
     },
+    'aBoundFunction': main.bind(null, aString),
     'aNull': null,
     'anUndefined': undefined,
     'aTrue': true,
@@ -69,7 +69,6 @@ var simpleProps = [
     'aConsString',
     'aClosure'
 ];
-
 
 function main()
 {
@@ -258,9 +257,13 @@ function testPropViaSlicedString(mdb, callback)
 
 /*
  * Tests that we can find all the references to our special string, "aString".
- * This will exercise the ability to find string referneces via regular
- * expressions, Cons Strings, closure references (via "aClosure"), and a case of
- * an array variable.
+ * This will exercise the ability to find string referneces via:
+ *
+ *   - common object property
+ *   - regular expressions
+ *   - ConsStrings
+ *   - bound functions
+ *   - array elements
  */
 function testPropAString(mdb, callback)
 {
@@ -290,7 +293,8 @@ function testPropAString(mdb, callback)
 		    testObjectAddr,
 		    testAddrs['aConsString'],
 		    testAddrs['anArray'],
-		    testAddrs['aRegExp']
+		    testAddrs['aRegExp'],
+		    testAddrs['aBoundFunction']
 		].sort();
 
 		lines = common.splitMdbLines(results.operations[0].result,
@@ -301,7 +305,8 @@ function testPropAString(mdb, callback)
 		    testObjectAddr + ' (type: JSObject)',
 		    testAddrs['aConsString'] + ' (type: ConsString)',
 		    testAddrs['anArray'] + ' (type: JSArray)',
-		    testAddrs['aRegExp'] + ' (type: JSRegExp)'
+		    testAddrs['aRegExp'] + ' (type: JSRegExp)',
+		    testAddrs['aBoundFunction'] + ' (type: JSFunction)'
 		].sort();
 
 		lines = common.splitMdbLines(results.operations[1].result,
@@ -372,7 +377,7 @@ function testBigObjectProp(mdb, callback)
 		});
 	    }
 	}, function (err, results) {
-		var lines, expectedAddrs, expectedVerbose;
+		var lines;
 
 		assert.ok(!err);
 		lines = common.splitMdbLines(results.operations[0].result,
