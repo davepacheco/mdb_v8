@@ -2476,6 +2476,13 @@ jsobj_maybe_garbage(uintptr_t addr)
  * property lookup in the V8 source code, currently in Object::GetProperty.
  */
 
+/* ARGSUSED */
+static int
+jsobj_noop(const char *name, v8propvalue_t *propval, void *arg)
+{
+	return (0);
+}
+
 static int
 jsobj_properties(uintptr_t addr,
     int (*func)(const char *, v8propvalue_t *, void *), void *arg,
@@ -6138,6 +6145,7 @@ jsfindrefs_reference(uintptr_t refaddr, void *arg)
 	v8whatis_error_t err;
 	boolean_t verbose = jsfr->jsfr_verbose;
 	boolean_t debug = jsfr->jsfr_debug;
+	jspropinfo_t propinfo;
 
 	if (debug) {
 		mdb_printf("depth %d: %p: found reference at %p: ",
@@ -6169,6 +6177,22 @@ jsfindrefs_reference(uintptr_t refaddr, void *arg)
 		}
 
 		return (-1);
+	}
+
+	/*
+	 * If we're looking at a JSObject, check whether the object itself
+	 * appears to be garbage.
+	 */
+	propinfo = JPI_NONE;
+	if (whatis.v8w_basetype == V8_TYPE_JSOBJECT &&
+	    (jsobj_properties(whatis.v8w_baseaddr, jsobj_noop, NULL,
+	    &propinfo) != 0 || (propinfo & JPI_MAYBE_GARBAGE) != 0)) {
+		if (debug) {
+			mdb_printf("skipping apparent garbage object: "
+			    "%p (%x)\n", whatis.v8w_baseaddr, propinfo);
+		}
+
+		return (0);
 	}
 
 	if (whatis.v8w_basetype == V8_TYPE_HEAPNUMBER ||
