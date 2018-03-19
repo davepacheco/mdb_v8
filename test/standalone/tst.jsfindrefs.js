@@ -69,7 +69,6 @@ function init()
 		console.log(aDummyString);
 	    },
 	    'aBoundFunction': main.bind(null, aString),
-	    'aClosure2': null, /* set later */
 	    'aNull': null,
 	    'anUndefined': undefined,
 	    'aTrue': true,
@@ -135,38 +134,7 @@ function findTopLevelObjects(mdb, callback)
 	console.error('test: locating top-level property addresses');
 	assert.equal('string', typeof (testObjectAddr));
 	mdb.runCmd(testObjectAddr + '::jsprint -ad1\n', function (output) {
-		var lines, count;
-		var i, parts, propname, propaddr;
-
-		count = 0;
-		jsprim.forEachKey(testObject, function () { count++; });
-
-		/*
-		 * XXX The ::jsprint output, at least for 32-bit Node 0.10.48,
-		 * appears not to contain the "aClosure2" property when it's not
-		 * set inline at the top of the file.  This needs to be
-		 * debugged.  It would help to have a dcmd that prints out
-		 * property descriptors for an object.  We've needed that for
-		 * ages.
-		 */
-		// count--;
-		lines = common.splitMdbLines(output, { 'count': count + 2 });
-
-		/*
-		 * There are two extra lines in the output for the header and
-		 * footer of the object.  These are deliberately skipped in this
-		 * loop.
-		 */
-		for (i = 1; i < lines.length - 1; i++) {
-			parts = strsplit.strsplit(lines[i], ':', 3);
-			assert.equal(parts.length, 3);
-			propname = JSON.parse(parts[0].trim());
-			propaddr = parts[1];
-			assert.ok(jsprim.hasKey(testObject, propname));
-			assert.ok(!jsprim.hasKey(testAddrs, propname));
-			testAddrs[propname] = propaddr.trim();
-		}
-
+		parseJsPrint(testObject, testAddrs, output);
 		console.error(testAddrs);
 		callback();
 	});
@@ -390,31 +358,7 @@ function findBigObjectProperties(mdb, callback)
 	assert.equal('string', typeof (testAddrs['aBigObject']));
 	mdb.runCmd(testAddrs['aBigObject'] + '::jsprint -ad1\n',
 	    function (output) {
-		var lines, count;
-		var i, parts, propname, propaddr;
-
-		count = 0;
-		jsprim.forEachKey(testObject['aBigObject'],
-		    function () { count++; });
-		lines = common.splitMdbLines(output, { 'count': count + 2 });
-
-		/*
-		 * There are two extra lines in the output for the header and
-		 * footer of the object.  These are deliberately skipped in this
-		 * loop.
-		 * XXX commonize with above.
-		 */
-		for (i = 1; i < lines.length - 1; i++) {
-			parts = strsplit.strsplit(lines[i], ':', 3);
-			assert.equal(parts.length, 3);
-			propname = JSON.parse(parts[0].trim());
-			propaddr = parts[1];
-			assert.ok(jsprim.hasKey(testObject['aBigObject'],
-			    propname));
-			assert.ok(!jsprim.hasKey(bigObjectAddrs, propname));
-			bigObjectAddrs[propname] = propaddr.trim();
-		}
-
+		parseJsPrint(testObject['aBigObject'], bigObjectAddrs, output);
 		console.error(bigObjectAddrs);
 		callback();
 	    });
@@ -618,6 +562,34 @@ function testNonJsTest(mdb, callback)
 			callback();
 		    });
 	});
+}
+
+function parseJsPrint(realObject, addrs, output)
+{
+	var lines, count;
+	var i, parts, propname, propaddr;
+
+	count = 0;
+	jsprim.forEachKey(realObject, function () { count++; });
+
+	/*
+	 * There are two extra lines in the output for the header and footer of
+	 * the object.  These are deliberately skipped in the loop.
+	 */
+	lines = common.splitMdbLines(output, { 'count': count + 2 });
+	for (i = 1; i < lines.length - 1; i++) {
+		parts = strsplit.strsplit(lines[i], ':', 3);
+		assert.equal(parts.length, 3);
+		propname = JSON.parse(parts[0].trim());
+		propaddr = parts[1];
+		assert.ok(jsprim.hasKey(realObject, propname),
+		    'found property in ::jsprint output that is not in the ' +
+		    'real object: ' + propname);
+		assert.ok(!jsprim.hasKey(addrs, propname),
+		    'found duplicate property in ::jsprint output: ' +
+		    propname);
+		addrs[propname] = propaddr.trim();
+	}
 }
 
 main();

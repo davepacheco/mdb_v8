@@ -4132,7 +4132,7 @@ dcmd_v8print_help(void)
 	    "class.  With no arguments, the appropriate class is detected\n"
 	    "automatically.  The 'class' argument overrides this to print an\n"
 	    "object as an instance of the given class.  The list of known\n"
-	    "classes can be viewed with ::jsclasses.");
+	    "classes can be viewed with ::v8classes.\n");
 }
 
 /* ARGSUSED */
@@ -6100,6 +6100,25 @@ typedef struct {
 static int jsfindrefs(jsfindrefs_t *);
 static int jsfindrefs_reference(uintptr_t, void *);
 
+static void
+dcmd_jsfindrefs_help(void)
+{
+	mdb_printf("%s\n",
+"Given an address representing a JavaScript value, attempt to find JavaScript\n"
+"objects referencing that value.  These references might include objects\n"
+"having this value as a property, arrays having this value as an element,\n"
+"closures having this value in a closure variable, and many other cases.\n");
+
+	mdb_dec_indent(2);
+	mdb_printf("%<b>OPTIONS%</b>\n");
+	mdb_inc_indent(2);
+
+	mdb_printf("%s\n",
+"  -d           print debug info about graph traversal (unstable output)\n"
+"  -v           print verbose information about each match (unstable output)\n"
+"  -l maxdepth  limit search to at most \"maxdepth\" levels of indirection\n");
+}
+
 static int
 dcmd_jsfindrefs(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 {
@@ -7300,8 +7319,8 @@ static const mdb_dcmd_t v8_mdb_dcmds[] = {
 		"print the constructor for a JavaScript object",
 		dcmd_jsconstructor },
 	{ "jsfindrefs", ":[-dv] [-l maxdepth]",
-		"attempt to find JavaScript objects referencing an object",
-		dcmd_jsfindrefs },
+		"find JavaScript values referencing a value",
+		dcmd_jsfindrefs, dcmd_jsfindrefs_help },
 	{ "jsframe", ":[-aiv] [-f function] [-p property] [-n numlines]",
 		"summarize a JavaScript stack frame", dcmd_jsframe },
 	{ "jsfunction", ":", "print information about a JavaScript function",
