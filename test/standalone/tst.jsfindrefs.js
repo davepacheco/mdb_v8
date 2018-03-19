@@ -15,6 +15,7 @@
 
 var assert = require('assert');
 var jsprim = require('jsprim');
+var path = require('path');
 var strsplit = require('strsplit');
 var util = require('util');
 var vasync = require('vasync');
@@ -107,6 +108,10 @@ function main()
 	testFuncs.push(testBigObjectProp);
 	testFuncs.push(testCycle);
 	testFuncs.push(testBogusAddress);
+	testFuncs.push(testNonJsFindMain);
+	testFuncs.push(testNonJsFindShared);
+	testFuncs.push(testNonJsFindScript);
+	testFuncs.push(testNonJsTest);
 
 	testFuncs.push(function (mdb, callback) {
 		mdb.checkMdbLeaks(callback);
@@ -280,7 +285,7 @@ function testPropAString(mdb, callback)
 {
 	var addr;
 
-	console.error('test: closure reference');
+	console.error('test: several basic types of reference');
 	assert.equal('string', typeof (testAddrs['aString']));
 	addr = testAddrs['aString'];
 
@@ -541,6 +546,77 @@ function testBogusAddress(mdb, callback)
 			    'found unexpected reference to main');
 			callback();
 		});
+	});
+}
+
+/*
+ * The following several functions implement a test case that starts with a V8
+ * heap object (that's not a JavaScript object).  This should give up quickly
+ * because the parent reference is not one of the internal V8 types that we
+ * believe can generate a useful JavaScript reference.
+ */
+var addrMain, addrMainShared, addrMainScript;
+
+function testNonJsFindMain(mdb, callback)
+{
+	var cmd;
+	console.error('test: walking back from non-JS V8 heap object');
+	cmd = '::jsfunctions -n main -s ' + path.basename(__filename) + '\n';
+	mdb.runCmd(cmd, function (output) {
+		var lines, parts;
+		lines = common.splitMdbLines(output, { 'count': 2 });
+		/* Skip the header row. */
+		parts = lines[1].split(/\s+/);
+		addrMain = parts[0].trim();
+		callback();
+	});
+}
+
+/* See above. */
+function testNonJsFindShared(mdb, callback)
+{
+	var cmd;
+	assert.equal('string', typeof (addrMain));
+	cmd = addrMain + '::v8print ! awk \'$2 == "shared"{ print $4 }\'\n';
+	mdb.runCmd(cmd, function (output) {
+		var lines;
+		lines = common.splitMdbLines(output, { 'count': 1 });
+		addrMainShared = lines[0].trim();
+		callback();
+	});
+}
+
+/* See above. */
+function testNonJsFindScript(mdb, callback)
+{
+	var cmd;
+	assert.equal('string', typeof (addrMainShared));
+	cmd = addrMainShared +
+	    '::v8print ! awk \'$2 == "script"{ print $4 }\'\n';
+	mdb.runCmd(cmd, function (output) {
+		var lines;
+		lines = common.splitMdbLines(output, { 'count': 1 });
+		addrMainScript = lines[0].trim();
+		callback();
+	});
+}
+
+/* See above. */
+function testNonJsTest(mdb, callback)
+{
+	assert.equal('string', typeof (addrMainScript));
+	mdb.runCmd(addrMainScript + '::jsfindrefs\n', function (output) {
+		assert.deepEqual(output, '');
+
+		mdb.runCmd(addrMainScript + '::jsfindrefs -d\n',
+		    function (verbout) {
+			var re;
+			re = new RegExp('found reference.*giving up search ' +
+			    'at instance of SharedFunctionInfo');
+			assert.ok(re.test(verbout),
+			    'expected message about giving up search');
+			callback();
+		    });
 	});
 }
 
