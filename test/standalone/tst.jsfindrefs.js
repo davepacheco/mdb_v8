@@ -24,42 +24,18 @@ var common = require('./common');
 
 /*
  * Construct an object graph that represents a variety of cases.  We want to
- * make sure there are some loops, object property references, array element
- * references, and closure variable references.
+ * make sure we cover object property references, array element references,
+ * closure variable references, and references within built-in types (like bound
+ * functions, regular expressions, and so on).
  *
- * TODO test cases to add:
- * - following an object back through:
- *   - a closure reference
- * - edge cases:
- *   - something where there are no references
- *   - something where we find no references after hitting the max depth
- *   - something where we find references to non-FixedArrays
+ * Initialization of the main test object happens inside init() in order to
+ * avoid closures picking up an additional reference to all the other top-level
+ * properties.
  */
-var aString = '^regular expression!$';
-var aLongerString = '0123456789012345678901234567890123456789';
-var aDummyString = 'dummy';
-var testObject = {
-    'aString': aString,
-    'aLongerString': aLongerString,
-    'aRegExp': new RegExp(aString),
-    'aBigObject': {},
-    'aSubObject': {},
-    'anArray': [ 16, 32, 64, 96, aString ],
-    'aSlicedString': aLongerString.slice(1, 37),
-    'aConsString': aString.concat('boom'),
-    'aClosure': function leakClosureVariables() {
-	/* This closure should have a reference to aDummyString. */
-	console.log(aDummyString);
-    },
-    'aBoundFunction': main.bind(null, aString),
-    'aNull': null,
-    'anUndefined': undefined,
-    'aTrue': true,
-    'aFalse': false
-};
-var testObjectAddr;
-var testAddrs = {};
-var bigObjectAddrs = {};
+var testObject;			/* used to find all values of interest */
+var testObjectAddr;		/* address (in core file) of "testObject" */
+var testAddrs = {};		/* addresses of "testObject" values */
+var bigObjectAddrs = {};	/* addresses of "bigObject" values */
 var simpleProps = [
     'aRegExp',
     'aBigObject',
@@ -70,23 +46,49 @@ var simpleProps = [
     'aClosure'
 ];
 
-function main()
+function init()
 {
-	var testFuncs, i;
+	var aString = '^regular expression!$';
+	var aLongerString = '0123456789012345678901234567890123456789';
+	var aDummyString = 'dummy';
+	var i;
 
-	/*
-	 * Finish initializing our test object.
-	 */
-	/* Create a circular reference via a closure variable. */
-	testObject['aClosure2'] = function leakAnotherVar() {
-		console.log(testObject['aSubObject']);
+	testObject = {
+	    'aString': aString,
+	    'aDummyString': aDummyString,
+	    'aLongerString': aLongerString,
+	    'aRegExp': new RegExp(aString),
+	    'aBigObject': {},
+	    'aSubObject': {},
+	    'anArray': [ 16, 32, 64, 96, aString ],
+	    'aSlicedString': aLongerString.slice(1, 37),
+	    'aConsString': aString.concat('boom'),
+	    'aClosure': function leakClosureVariables() {
+		/* This closure should have a reference to aDummyString. */
+		console.log(aDummyString);
+	    },
+	    'aBoundFunction': main.bind(null, aString),
+	    'aClosure2': null, /* set later */
+	    'aNull': null,
+	    'anUndefined': undefined,
+	    'aTrue': true,
+	    'aFalse': false
 	};
+
 	/* Create a circular reference via the array. */
 	testObject['anArray'].push(testObject);
+
 	/* Flesh out a large object. */
 	for (i = 0; i < 128; i++) {
 		testObject['aBigObject']['prop_' + i] = 'str_' + i;
 	}
+}
+
+function main()
+{
+	var testFuncs;
+
+	init();
 
 	testFuncs = [];
 	testFuncs.push(function findTestObject(mdb, callback) {
@@ -100,6 +102,7 @@ function main()
 	testFuncs.push(testPropsSimpleVerbose);
 	testFuncs.push(testPropViaSlicedString);
 	testFuncs.push(testPropAString);
+	testFuncs.push(testPropADummyString);
 	testFuncs.push(findBigObjectProperties);
 	testFuncs.push(testBigObjectProp);
 
@@ -132,12 +135,13 @@ function findTopLevelObjects(mdb, callback)
 
 		/*
 		 * XXX The ::jsprint output, at least for 32-bit Node 0.10.48,
-		 * appears not to contain the "aClosure2" property.  This needs
-		 * to be debugged.  It would help to have a dcmd that prints out
+		 * appears not to contain the "aClosure2" property when it's not
+		 * set inline at the top of the file.  This needs to be
+		 * debugged.  It would help to have a dcmd that prints out
 		 * property descriptors for an object.  We've needed that for
 		 * ages.
 		 */
-		count--;
+		// count--;
 		lines = common.splitMdbLines(output, { 'count': count + 2 });
 
 		/*
@@ -307,6 +311,51 @@ function testPropAString(mdb, callback)
 		    testAddrs['anArray'] + ' (type: JSArray)',
 		    testAddrs['aRegExp'] + ' (type: JSRegExp)',
 		    testAddrs['aBoundFunction'] + ' (type: JSFunction)'
+		].sort();
+
+		lines = common.splitMdbLines(results.operations[1].result,
+		    { 'count': expectedVerbose.length });
+		assert.deepEqual(lines, expectedVerbose);
+		callback();
+	});
+}
+
+/*
+ * Tests that we can find the references we expect to "aDummyString", which is
+ * used only via a normal property reference and a closure variable.
+ */
+function testPropADummyString(mdb, callback)
+{
+	var addr;
+	assert.equal('string', typeof (testAddrs['aDummyString']));
+	addr = testAddrs['aDummyString'];
+
+	vasync.forEachPipeline({
+	    'inputs': [
+		addr + '::jsfindrefs ! sort\n',
+		addr + '::jsfindrefs -v ! sort\n'
+	    ],
+	    'func': function runCmd(cmd, subcallback) {
+		mdb.runCmd(cmd, function (output) {
+			subcallback(null, output);
+		});
+	    }
+	}, function (err, results) {
+		var lines, expectedAddrs, expectedVerbose;
+
+		assert.ok(!err);
+		expectedAddrs = [
+		    testObjectAddr,
+		    testAddrs['aClosure']
+		].sort();
+
+		lines = common.splitMdbLines(results.operations[0].result,
+		    { 'count': expectedAddrs.length });
+		assert.deepEqual(lines, expectedAddrs);
+
+		expectedVerbose = [
+		    testObjectAddr + ' (type: JSObject)',
+		    testAddrs['aClosure'] + ' (type: JSFunction)'
 		].sort();
 
 		lines = common.splitMdbLines(results.operations[1].result,

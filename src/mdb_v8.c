@@ -6195,6 +6195,25 @@ jsfindrefs_reference(uintptr_t refaddr, void *arg)
 		return (0);
 	}
 
+	/*
+	 * If we're looking at a JSFunction, check whether our depth is larger
+	 * than one.  The reason for this is that if we landed at a JSFunction,
+	 * this is likely to be a closure variable reference.  In that case, if
+	 * the depth is more than one, then we've likely walked up to parent
+	 * closures, which we want to avoid here.  (If we limited the global
+	 * depth to 1, we'd miss other important cases -- like Arrays.)
+	 */
+	if (whatis.v8w_basetype == V8_TYPE_JSFUNCTION &&
+	    jsfr->jsfr_curdepth > 1) {
+		if (debug) {
+			mdb_printf("skipping JSFunction reference %p "
+			    "at depth %d\n", whatis.v8w_baseaddr,
+			    jsfr->jsfr_curdepth);
+		}
+
+		return (0);
+	}
+
 	if (whatis.v8w_basetype == V8_TYPE_HEAPNUMBER ||
 	    whatis.v8w_basetype == V8_TYPE_MUTABLEHEAPNUMBER ||
 	    whatis.v8w_basetype == V8_TYPE_ODDBALL ||
