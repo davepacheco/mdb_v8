@@ -524,48 +524,21 @@ function testCycle(mdb, callback)
 /*
  * Verifies the case that an address has no valid references from JavaScript
  * objects.  It would be ideal to test this with a real JavaScript value that's
- * not referenced, but that's naturally hard to find.  Instead, we pick an
- * address within our stack.  This should be mapped, but isn't itself a
- * JavaScript object, and so should not have a reference from a JavaScript
- * object.
+ * not referenced, but that's naturally hard to find.  Instead, we pick the
+ * address of "main".  This should be mapped, but isn't itself a JavaScript
+ * object, and so should not have a reference from a JavaScript object.
  */
 function testBogusAddress(mdb, callback)
 {
 	console.error('test: bogus address (from stack)');
-	mdb.runCmd('$C\n', function (stackoutput) {
-		var lines, i, parts, nameparts;
-		var ptr, cmd;
+	mdb.runCmd('main=K\n', function (mainoutput) {
+		var lines, cmd;
 
-		lines = common.splitMdbLines(stackoutput, {});
-		for (i = 0; i < lines.length; i++) {
-			parts = strsplit(lines[i], /\s+/, 2);
-			if (parts.length != 2) {
-				continue;
-			}
-
-			/*
-			 * To further minimize the chance that our test breaks
-			 * spuriously because the value we're testing with
-			 * legitimately wound up inside a JavaScript object,
-			 * we use the frame pointer for the "main" frame.  This
-			 * really ought not to be useful in any legitimate
-			 * JavaScript object.
-			 */
-			nameparts = strsplit(parts[1], '+', 2);
-			if (nameparts[0] == 'main') {
-				break;
-			}
-		}
-
-		assert.ok(i < lines.length,
-		    'did not find main() frame in $C output');
-		assert.equal(nameparts[0], 'main');
-
-		ptr = parts[0];
-		cmd = ptr + '::jsfindrefs\n';
+		lines = common.splitMdbLines(mainoutput, { 'count': 1 });
+		cmd = lines[0].trim() + '::jsfindrefs\n';
 		mdb.runCmd(cmd, function (output) {
 			assert.strictEqual(output, '',
-			    'found unexpected reference to frame pointer');
+			    'found unexpected reference to main');
 			callback();
 		});
 	});
