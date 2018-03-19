@@ -6104,7 +6104,6 @@ static int
 dcmd_jsfindrefs(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 {
 	jsfindrefs_t jsfr;
-	uintptr_t maxdepth;
 	int err;
 
 	if (!(flags & DCMD_ADDRSPEC)) {
@@ -6123,7 +6122,7 @@ dcmd_jsfindrefs(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 	if (mdb_getopts(argc, argv,
 	    'v', MDB_OPT_SETBITS, B_TRUE, &jsfr.jsfr_verbose,
 	    'd', MDB_OPT_SETBITS, B_TRUE, &jsfr.jsfr_debug,
-	    'l', MDB_OPT_UINTPTR, &maxdepth, NULL) != argc) {
+	    'l', MDB_OPT_UINTPTR, &jsfr.jsfr_maxdepth, NULL) != argc) {
 		return (DCMD_USAGE);
 	}
 

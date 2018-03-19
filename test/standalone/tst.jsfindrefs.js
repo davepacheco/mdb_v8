@@ -105,6 +105,8 @@ function main()
 	testFuncs.push(testPropADummyString);
 	testFuncs.push(findBigObjectProperties);
 	testFuncs.push(testBigObjectProp);
+	testFuncs.push(testCycle);
+	testFuncs.push(testBogusAddress);
 
 	testFuncs.push(function (mdb, callback) {
 		mdb.checkMdbLeaks(callback);
@@ -125,6 +127,7 @@ function main()
  */
 function findTopLevelObjects(mdb, callback)
 {
+	console.error('test: locating top-level property addresses');
 	assert.equal('string', typeof (testObjectAddr));
 	mdb.runCmd(testObjectAddr + '::jsprint -ad1\n', function (output) {
 		var lines, count;
@@ -171,6 +174,7 @@ function findTopLevelObjects(mdb, callback)
  */
 function testPropsSimple(mdb, callback)
 {
+	console.error('test: normal output for single-reference properties');
 	vasync.forEachPipeline({
 	    'inputs': simpleProps,
 	    'func': function testOneSimpleProperty(propname, subcb) {
@@ -194,6 +198,7 @@ function testPropsSimple(mdb, callback)
  */
 function testPropsSimpleVerbose(mdb, callback)
 {
+	console.error('test: verbose output for single-reference properties');
 	vasync.forEachPipeline({
 	    'inputs': simpleProps,
 	    'func': function testOneSimpleProperty(propname, subcb) {
@@ -220,6 +225,8 @@ function testPropsSimpleVerbose(mdb, callback)
 function testPropViaSlicedString(mdb, callback)
 {
 	var addr;
+
+	console.error('test: sliced string reference');
 	assert.equal('string', typeof (testAddrs['aLongerString']));
 	addr = testAddrs['aLongerString'];
 
@@ -272,6 +279,8 @@ function testPropViaSlicedString(mdb, callback)
 function testPropAString(mdb, callback)
 {
 	var addr;
+
+	console.error('test: closure reference');
 	assert.equal('string', typeof (testAddrs['aString']));
 	addr = testAddrs['aString'];
 
@@ -327,6 +336,8 @@ function testPropAString(mdb, callback)
 function testPropADummyString(mdb, callback)
 {
 	var addr;
+
+	console.error('test: closure references');
 	assert.equal('string', typeof (testAddrs['aDummyString']));
 	addr = testAddrs['aDummyString'];
 
@@ -370,6 +381,7 @@ function testPropADummyString(mdb, callback)
  */
 function findBigObjectProperties(mdb, callback)
 {
+	console.error('test: locating big object properties');
 	assert.equal('string', typeof (testAddrs['aBigObject']));
 	mdb.runCmd(testAddrs['aBigObject'] + '::jsprint -ad1\n',
 	    function (output) {
@@ -407,17 +419,24 @@ function findBigObjectProperties(mdb, callback)
  * Tests finding a property value from our big object.  This is intended to
  * exercise a different case of object layout -- namely, dictionary layout --
  * than what is likely used for our main test object.
+ *
+ * This test is also used to verify that we cleanly stop iterating (having found
+ * no references) if the depth is limited too far.  To test this, we run the
+ * same test with depth limited to 1 and verify that we don't find any
+ * reference.
  */
 function testBigObjectProp(mdb, callback)
 {
 	var addr;
 
+	console.error('test: big object property and depth limit');
 	addr = bigObjectAddrs['prop_25'];
 	assert.equal('string', typeof (addr));
 
 	vasync.forEachPipeline({
 	    'inputs': [
 		addr + '::jsfindrefs\n',
+		addr + '::jsfindrefs -l 1\n',
 		addr + '::jsfindrefs -v\n'
 	    ],
 	    'func': function runCmd(cmd, subcallback) {
@@ -433,11 +452,122 @@ function testBigObjectProp(mdb, callback)
 		    { 'count': 1 });
 		assert.deepEqual(lines, [ testAddrs['aBigObject'] ]);
 
-		lines = common.splitMdbLines(results.operations[1].result,
+		assert.strictEqual('', results.operations[1].result);
+
+		lines = common.splitMdbLines(results.operations[2].result,
 		    { 'count': 1 });
 		assert.deepEqual(lines,
 		    [ testAddrs['aBigObject'] + ' (type: JSObject)' ]);
 		callback();
+	});
+}
+
+/*
+ * Verifies that we don't spin into an infinite loop in the case of cycles in
+ * the JavaScript object graph.  We test this by showing that we can find the
+ * references to "testObject", which should include our array, and we can find
+ * references to our test array, which should include "testObject".  This
+ * demonstrates that we found the cycle and didn't loop forever trying to
+ * process it.
+ *
+ * It would be nice to also test the case of cycles in the graph of V8 objects
+ * that aren't also JavaScript objects (e.g., two FixedArrays pointing at each
+ * other).  This is arguably a bigger risk, but it's harder to construct
+ * instances of such structures.
+ */
+function testCycle(mdb, callback)
+{
+	console.error('test: cycle');
+	assert.equal('string', typeof (testAddrs['anArray']));
+	assert.equal('string', typeof (testObjectAddr));
+
+	vasync.forEachPipeline({
+	    'inputs': [
+	        testObjectAddr + '::jsfindrefs\n',
+		testAddrs['anArray'] + '::jsfindrefs\n'
+	    ],
+	    'func': function runCmd(cmd, subcallback) {
+		mdb.runCmd(cmd, function (output) {
+			subcallback(null, output);
+		});
+	    }
+	}, function (err, results) {
+		var lines, found, i;
+
+		assert.ok(!err);
+
+		lines = common.splitMdbLines(results.operations[0].result, {});
+		found = false;
+		for (i = 0; i < lines.length; i++) {
+			if (lines[i] == testAddrs['anArray']) {
+				found = true;
+				break;
+			}
+		}
+		assert.ok(found,
+		    'did not find reference from array to testObject');
+
+		lines = common.splitMdbLines(results.operations[1].result, {});
+		found = false;
+		for (i = 0; i < lines.length; i++) {
+			if (lines[i] == testObjectAddr) {
+				found = true;
+				break;
+			}
+		}
+		assert.ok(found,
+		    'did not find reference from testObject to array');
+		callback();
+	});
+}
+
+/*
+ * Verifies the case that an address has no valid references from JavaScript
+ * objects.  It would be ideal to test this with a real JavaScript value that's
+ * not referenced, but that's naturally hard to find.  Instead, we pick an
+ * address within our stack.  This should be mapped, but isn't itself a
+ * JavaScript object, and so should not have a reference from a JavaScript
+ * object.
+ */
+function testBogusAddress(mdb, callback)
+{
+	console.error('test: bogus address (from stack)');
+	mdb.runCmd('$C\n', function (stackoutput) {
+		var lines, i, parts, nameparts;
+		var ptr, cmd;
+
+		lines = common.splitMdbLines(stackoutput, {});
+		for (i = 0; i < lines.length; i++) {
+			parts = strsplit(lines[i], /\s+/, 2);
+			if (parts.length != 2) {
+				continue;
+			}
+
+			/*
+			 * To further minimize the chance that our test breaks
+			 * spuriously because the value we're testing with
+			 * legitimately wound up inside a JavaScript object,
+			 * we use the frame pointer for the "main" frame.  This
+			 * really ought not to be useful in any legitimate
+			 * JavaScript object.
+			 */
+			nameparts = strsplit(parts[1], '+', 2);
+			if (nameparts[0] == 'main') {
+				break;
+			}
+		}
+
+		assert.ok(i < lines.length,
+		    'did not find main() frame in $C output');
+		assert.equal(nameparts[0], 'main');
+
+		ptr = parts[0];
+		cmd = ptr + '::jsfindrefs\n';
+		mdb.runCmd(cmd, function (output) {
+			assert.strictEqual(output, '',
+			    'found unexpected reference to frame pointer');
+			callback();
+		});
 	});
 }
 
